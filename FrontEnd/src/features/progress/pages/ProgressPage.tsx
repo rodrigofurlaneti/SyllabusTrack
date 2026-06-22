@@ -1,0 +1,269 @@
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { useDashboard } from '../../dashboard/hooks/useDashboard'
+import { useUpdateProgress } from '../hooks/useProgress'
+import { FullPageSpinner, Spinner } from '../../../shared/components/Spinner'
+import { StatusBadge } from '../../../shared/components/StatusBadge'
+import type { Status } from '../../../shared/components/StatusBadge'
+import type { ProgressResponse } from '../../dashboard/api/dashboardApi'
+import type { CompletionStatus } from '../types/progress.types'
+
+const ALL_STATUSES: Status[] = ['Pending', 'InProgress', 'Completed', 'Failed']
+
+const schema = z.object({
+  completionStatus: z.enum(['Pending', 'InProgress', 'Completed', 'Failed']),
+  semesterTaken: z.string().optional(),
+  finalGrade: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
+    z.number().min(0).max(10).nullable(),
+  ),
+})
+
+type FormData = z.infer<typeof schema>
+
+interface EditModalProps {
+  subject: ProgressResponse
+  enrollmentId: number
+  onClose: () => void
+}
+
+function EditModal({ subject, enrollmentId, onClose }: EditModalProps) {
+  const { mutate, isPending, isSuccess, error } = useUpdateProgress(enrollmentId)
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      completionStatus: subject.completionStatus as CompletionStatus,
+      semesterTaken: subject.semesterTaken ?? '',
+      finalGrade: subject.finalGrade ?? (null as unknown as number),
+    },
+  })
+
+  const status = watch('completionStatus')
+
+  const onSubmit = (data: FormData) => {
+    mutate({
+      progressId: subject.progressId,
+      completionStatus: data.completionStatus as CompletionStatus,
+      semesterTaken: data.semesterTaken || null,
+      finalGrade: data.finalGrade,
+    })
+  }
+
+  if (isSuccess) {
+    setTimeout(onClose, 600)
+  }
+
+  const apiError = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+        <h3 className="mb-1 text-base font-semibold text-gray-900">Atualizar progresso</h3>
+        <p className="mb-5 text-sm text-gray-500">
+          {subject.subjectName ?? `Disciplina #${subject.subjectId}`}
+        </p>
+
+        {isSuccess && (
+          <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
+            Atualizado com sucesso!
+          </div>
+        )}
+
+        {apiError && (
+          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{apiError}</div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* Status */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+            <select
+              {...register('completionStatus')}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+            >
+              <option value="Pending">Pendente</option>
+              <option value="InProgress">Em Andamento</option>
+              <option value="Completed">Concluída</option>
+              <option value="Failed">Reprovada</option>
+            </select>
+          </div>
+
+          {/* Semester */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Semestre cursado <span className="text-gray-400">(opcional)</span>
+            </label>
+            <input
+              {...register('semesterTaken')}
+              type="text"
+              placeholder="ex: 2024.1"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+            />
+          </div>
+
+          {/* Grade — só mostra quando relevante */}
+          {(status === 'Completed' || status === 'Failed') && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Nota final <span className="text-gray-400">(0.0 – 10.0)</span>
+              </label>
+              <input
+                {...register('finalGrade')}
+                type="number"
+                step="0.1"
+                min="0"
+                max="10"
+                placeholder="7.5"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+              />
+              {errors.finalGrade && (
+                <p className="mt-1 text-xs text-red-600">{errors.finalGrade.message as string}</p>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={isPending}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
+            >
+              {isPending && <Spinner size="sm" />}
+              {isPending ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export function ProgressPage() {
+  const { data: enrollments, isLoading } = useDashboard()
+  const [filter, setFilter] = useState<Status | 'All'>('All')
+  const [editing, setEditing] = useState<ProgressResponse | null>(null)
+
+  if (isLoading) return <FullPageSpinner />
+
+  const enrollment = enrollments?.[0]
+  const progress = enrollment?.progress ?? []
+
+  const filtered =
+    filter === 'All' ? progress : progress.filter((p) => p.completionStatus === filter)
+
+  const counts = ALL_STATUSES.reduce(
+    (acc, s) => ({ ...acc, [s]: progress.filter((p) => p.completionStatus === s).length }),
+    {} as Record<Status, number>,
+  )
+
+  return (
+    <div className="space-y-6">
+      {editing && enrollment && (
+        <EditModal
+          subject={editing}
+          enrollmentId={enrollment.enrollmentId}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Progresso por Disciplina</h1>
+        <p className="mt-0.5 text-sm text-gray-500">
+          Atualize o status e a nota de cada disciplina
+        </p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setFilter('All')}
+          className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+            filter === 'All'
+              ? 'border-primary-600 bg-primary-50 text-primary-700'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          Todas ({progress.length})
+        </button>
+        {ALL_STATUSES.map((s) => (
+          <button
+            key={s}
+            onClick={() => setFilter(s)}
+            className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+              filter === s
+                ? 'border-primary-600 bg-primary-50 text-primary-700'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <StatusBadge status={s} /> {counts[s]}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
+          <p className="text-sm text-gray-500">Nenhuma disciplina encontrada.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <ul className="divide-y divide-gray-50">
+            {filtered.map((subject) => (
+              <li
+                key={subject.progressId}
+                className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-gray-800">
+                    {subject.subjectName ?? `Disciplina #${subject.subjectId}`}
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <StatusBadge status={subject.completionStatus as Status} />
+                    {subject.semesterTaken && (
+                      <span className="text-xs text-gray-400">{subject.semesterTaken}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="ml-4 flex items-center gap-4">
+                  {subject.finalGrade != null && (
+                    <span
+                      className={`text-lg font-bold ${
+                        subject.finalGrade >= 5 ? 'text-emerald-600' : 'text-red-600'
+                      }`}
+                    >
+                      {subject.finalGrade.toFixed(1)}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setEditing(subject)}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    Editar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}

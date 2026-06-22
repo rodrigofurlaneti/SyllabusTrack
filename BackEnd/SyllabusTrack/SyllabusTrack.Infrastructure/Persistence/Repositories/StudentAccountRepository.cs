@@ -17,15 +17,22 @@ internal sealed class StudentAccountRepository(AppDbContext dbContext) : IStuden
 
     public async Task<StudentAccount?> GetByEmailOrUsernameAsync(string identifier, CancellationToken cancellationToken = default)
         => await dbContext.StudentAccounts
+            .FromSqlInterpolated($"""
+                SELECT * FROM StudentAccount
+                WHERE (EmailAddress = {identifier} OR LoginUsername = {identifier})
+                  AND IsActive = 1
+                """)
             .AsNoTracking()
-            .FirstOrDefaultAsync(s =>
-                (s.EmailAddress.Value == identifier || s.LoginUsername == identifier) && s.IsActive,
-                cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<bool> IsEmailUniqueAsync(Email email, CancellationToken cancellationToken = default)
         => !await dbContext.StudentAccounts
+            .FromSqlInterpolated($"""
+                SELECT * FROM StudentAccount
+                WHERE EmailAddress = {email.Value} AND IsActive = 1
+                """)
             .AsNoTracking()
-            .AnyAsync(s => s.EmailAddress.Value == email.Value, cancellationToken);
+            .AnyAsync(cancellationToken);
 
     public async Task<bool> IsUsernameUniqueAsync(string username, CancellationToken cancellationToken = default)
         => !await dbContext.StudentAccounts
