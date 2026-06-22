@@ -38,6 +38,21 @@ namespace SyllabusTrack.Domain.Entities
             return Result.Success(new DegreeProgram(institutionId, name, version, semesters));
         }
 
+        public Result UpdateDetails(string name, string version, int semesters)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return Result.Failure(new Error("Program.EmptyName", "Program name is required."));
+
+            if (semesters <= 0)
+                return Result.Failure(new Error("Program.InvalidSemesters", "Total semesters must be greater than zero."));
+
+            ProgramName = name;
+            CurriculumVersion = version;
+            TotalSemesters = semesters;
+
+            return Result.Success();
+        }
+
         public void Deactivate() => IsActive = false;
     }
 }

@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using FluentValidation;
+using Microsoft.Extensions.DependencyInjection;
+using SyllabusTrack.Application.Abstractions.Behaviors;
 
 namespace SyllabusTrack.Application
 {

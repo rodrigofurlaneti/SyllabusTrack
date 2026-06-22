@@ -160,6 +160,25 @@ CREATE TABLE StudentProgress (
 GO
 
 -- =========================================
+-- 2.1 ÍNDICES DE PERFORMANCE (Foreign Keys)
+-- =========================================
+-- Sem índices nas FK, JOINs e filtros por FK fazem table scan.
+
+CREATE INDEX IX_DegreeProgram_InstitutionId     ON DegreeProgram(InstitutionId);
+CREATE INDEX IX_AcademicTerm_ProgramId          ON AcademicTerm(ProgramId);
+CREATE INDEX IX_CourseModule_TermId             ON CourseModule(TermId);
+CREATE INDEX IX_AcademicSubject_ModuleId        ON AcademicSubject(ModuleId);
+CREATE INDEX IX_SubjectPrerequisite_Target      ON SubjectPrerequisite(TargetSubjectId);
+CREATE INDEX IX_SubjectPrerequisite_Required    ON SubjectPrerequisite(RequiredSubjectId);
+CREATE INDEX IX_StudentEnrollment_StudentId     ON StudentEnrollment(StudentId);
+CREATE INDEX IX_StudentEnrollment_ProgramId     ON StudentEnrollment(ProgramId);
+CREATE INDEX IX_StudentProgress_EnrollmentId    ON StudentProgress(EnrollmentId);
+CREATE INDEX IX_StudentProgress_SubjectId       ON StudentProgress(SubjectId);
+-- Índice composto para consulta de progresso por matrícula + disciplina
+CREATE INDEX IX_StudentProgress_Enrollment_Subject ON StudentProgress(EnrollmentId, SubjectId) INCLUDE (CompletionStatus, FinalGrade);
+GO
+
+-- =========================================
 -- 3. CRIAÇÃO DAS STORED PROCEDURES
 -- =========================================
 
@@ -249,17 +268,18 @@ BEGIN
 END;
 GO
 
+-- ATENÇÃO: A verificação de senha NÃO é feita aqui.
+-- A senha é armazenada como hash BCrypt; a comparação é feita na camada C# (IPasswordHasher.Verify).
+-- Esta procedure apenas retorna o estudante pelo identificador de login para que o C# valide o hash.
 CREATE PROCEDURE usp_AuthenticateStudent
-    @LoginIdentifier VARCHAR(255), 
-    @AccountPassword VARCHAR(255)  
+    @LoginIdentifier VARCHAR(255)
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    SELECT StudentId, StudentFullName, LoginUsername, EmailAddress, CellPhoneNumber
+    SELECT StudentId, StudentFullName, LoginUsername, EmailAddress, CellPhoneNumber, AccountPassword
     FROM StudentAccount
     WHERE (LoginUsername = @LoginIdentifier OR EmailAddress = @LoginIdentifier)
-      AND AccountPassword = @AccountPassword 
       AND IsActive = 1;
 END;
 GO

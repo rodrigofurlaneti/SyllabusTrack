@@ -1,1048 +1,522 @@
-﻿# Architecture & Testing Patterns - SyllabusTrack
+# SyllabusTrack — Arquitetura e Padrões
 
-## Skill Purpose
+## Propósito
 
-You are an expert fullstack architect. When activated, you enforce all the architecture, modeling, and testing patterns documented here. Apply them consistently whenever creating new features, reviewing code, or scaffolding anything in this solution.
+Você é um arquiteto fullstack especialista neste projeto. Quando ativado, aplique consistentemente todos os padrões de arquitetura, modelagem e nomenclatura documentados aqui — ao criar features, revisar código ou fazer scaffold.
 
 ---
 
-## Tech Stack
+## Stack Tecnológico
 
-| Layer | Technology |
+| Camada | Tecnologia |
 |---|---|
 | Runtime | .NET 9 / C# 13 |
 | Web API | ASP.NET Core Web API |
 | ORM | EF Core 9 (SQL Server) |
-| Messaging | MediatR 12 |
-| Validation | FluentValidation 11 |
+| Mensageria | MediatR 12 |
+| Validação | FluentValidation 11 |
 | Auth | JWT Bearer (BCrypt + System.IdentityModel.Tokens.Jwt) |
-| Logging | Serilog |
-| AI Integration | Google Gemini Vision API (via typed HttpClient) |
-| Testing | Reqnroll (Gherkin/BDD) + xUnit + NSubstitute + FluentAssertions |
-| Frontend | React 19, TypeScript 6, Vite 8 |
-| Frontend State | Zustand 5 (auth) + TanStack React Query 5 (server state) |
-| Forms | React Hook Form 7 + Zod 4 |
-| HTTP Client | Axios (singleton with interceptors) |
-| Routing | React Router DOM 7 |
+| Testes | Reqnroll (Gherkin/BDD) + xUnit + NSubstitute + FluentAssertions |
+| Frontend | React 19, TypeScript, Vite |
+| Estado | Zustand (auth) + TanStack React Query (server state) |
+| Formulários | React Hook Form + Zod |
+| HTTP Client | Axios (singleton com interceptors) |
+| Roteamento | React Router DOM 7 |
 
 ---
 
-## 1. Solution Structure
+## 1. Estrutura da Solução
 
 ```
-/
-├── Sql/                          # DDL scripts and seed data
-├── FrontEnd/                     # React + TypeScript SPA
-│   └── src/
-│       ├── core/                   # Axios client, auth store, router, query client
-│       ├── design-system/          # Shared UI components and CSS tokens
-│       ├── features/               # Feature-sliced modules
-│       └── shared/                 # Cross-cutting components (Spinner, etc.)
+SyllabusTrack/
+├── Sql/
+│   ├── MasterScript.sql      # DDL: tabelas, índices, stored procedures
+│   └── SeedData.sql          # Dados reais do curso de Medicina (UnirG)
+├── FrontEnd/                 # React + TypeScript SPA
 └── BackEnd/
-    ├── src/
-    │   ├── SyllabusTrack.Domain          # Entities, Value Objects, Interfaces, Events
-    │   ├── SyllabusTrack.Application     # CQRS commands/queries, validators, DTOs
-    │   ├── SyllabusTrack.Infrastructure  # EF Core, repositories, JWT, Gemini, Serilog
-    │   └── SyllabusTrack.Api             # Controllers, middleware, DI composition
-    └── tests/
-        └── SyllabusTrack.BddTests        # BDD/Gherkin feature files + step definitions
+    └── SyllabusTrack/
+        ├── SyllabusTrack.Domain          # Entidades, VOs, interfaces, eventos
+        ├── SyllabusTrack.Application     # CQRS: commands/queries, validators, DTOs
+        ├── SyllabusTrack.Infrastructure  # EF Core, repositórios, JWT, BCrypt
+        └── SyllabusTrack.API             # Controllers, middleware, DI
 ```
 
-**Dependency flow (Clean Architecture):**
+**Fluxo de dependência (Clean Architecture):**
 ```
-Api → Application → Domain
-         ↑
-  Infrastructure (implements Domain interfaces)
+API → Application → Domain
+              ↑
+       Infrastructure (implementa interfaces do Domain)
 ```
 
-- Domain has **zero** external dependencies.
-- Application depends only on Domain.
-- Infrastructure implements Domain interfaces; never referenced by Application.
-- Api references both Application and Infrastructure for DI wiring only.
+- Domain: **zero** dependências externas.
+- Application: depende apenas do Domain.
+- Infrastructure: implementa interfaces do Domain; nunca referenciada pela Application.
+- API: referencia Application e Infrastructure apenas para DI.
 
 ---
 
-## 2. Domain Layer
+## 2. Domínio — Entidades e Banco de Dados
 
-### 2.1 Base Classes
+### 2.1 Modelo de Dados
 
-#### `Entity` (abstract)
+O banco **SyllabusTrackDb** (SQL Server, PKs `INT IDENTITY`) tem as seguintes tabelas:
+
+```
+EducationalInstitution   (InstitutionId PK)
+  └── DegreeProgram      (ProgramId PK, InstitutionId FK)
+        └── AcademicTerm (TermId PK, ProgramId FK)
+              └── CourseModule    (ModuleId PK, TermId FK)
+                    └── AcademicSubject     (SubjectId PK, ModuleId FK)
+                          └── SubjectPrerequisite (TargetSubjectId FK, RequiredSubjectId FK)
+
+StudentAccount           (StudentId PK)
+  └── StudentEnrollment  (EnrollmentId PK, StudentId FK, ProgramId FK)
+        └── StudentProgress (ProgressId PK, EnrollmentId FK, SubjectId FK)
+```
+
+**Campos comuns em todas as tabelas:** `IsActive BIT DEFAULT 1`, `CreatedAt DATETIME`, `UpdatedAt DATETIME`.
+
+**Soft delete:** nunca `DELETE` físico — sempre `UPDATE IsActive = 0`.
+
+### 2.2 Entidades C# Mapeadas pelo EF Core
+
+| Entidade C# | Tabela SQL | Tipo |
+|---|---|---|
+| `EducationalInstitution` | `EducationalInstitution` | `AggregateRoot` |
+| `DegreeProgram` | `DegreeProgram` | `AggregateRoot` |
+| `AcademicSubject` | `AcademicSubject` | `Entity` |
+| `StudentAccount` | `StudentAccount` | `AggregateRoot` |
+| `StudentEnrollment` | `StudentEnrollment` | `AggregateRoot` |
+| `StudentProgress` | `StudentProgress` | `Entity` |
+
+> **Atenção:** `AcademicTerm` e `CourseModule` existem no banco mas **não têm entidade C#** — são gerenciados via SQL direto ou seeds. `AcademicSubject` referencia `ModuleId` como `int` simples (sem navegação EF).
+
+### 2.3 Classes Base (Domain/Primitives)
 
 ```csharp
+// Entity — PK int
 public abstract class Entity : IEquatable<Entity>
 {
-    public Guid Id { get; private init; }
-    public DateTime CreatedAt { get; private set; }
-    public DateTime? UpdatedAt { get; private set; }
-
-    protected Entity() => Id = Guid.NewGuid();
-    protected Entity(Guid id) => Id = id;
-
-    protected void SetCreatedAt(DateTime createdAt) => CreatedAt = createdAt;
-    protected void SetUpdatedAt(DateTime updatedAt) => UpdatedAt = updatedAt;
-
-    public bool Equals(Entity? other) => other is not null && Id == other.Id;
-    public override bool Equals(object? obj) => obj is Entity e && Equals(e);
-    public override int GetHashCode() => Id.GetHashCode();
-    public static bool operator ==(Entity? a, Entity? b) => a?.Equals(b) ?? b is null;
-    public static bool operator !=(Entity? a, Entity? b) => !(a == b);
+    public int Id { get; protected set; }
+    protected Entity(int id) => Id = id;
+    // Equals/GetHashCode por Id
 }
-```
 
-#### `AggregateRoot` (abstract, extends Entity)
-
-```csharp
+// AggregateRoot — estende Entity, suporta domain events
 public abstract class AggregateRoot : Entity
 {
     private readonly List<IDomainEvent> _domainEvents = [];
     public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
-
-    protected void RaiseDomainEvent(IDomainEvent domainEvent) => _domainEvents.Add(domainEvent);
+    protected void RaiseDomainEvent(IDomainEvent e) => _domainEvents.Add(e);
     public void ClearDomainEvents() => _domainEvents.Clear();
 }
-```
 
-#### `ValueObject` (abstract)
-
-```csharp
+// ValueObject — igualdade por valor
 public abstract class ValueObject : IEquatable<ValueObject>
 {
-    protected abstract IEnumerable<object> GetEqualityComponents();
-
-    public bool Equals(ValueObject? other) =>
-        other is not null && GetEqualityComponents().SequenceEqual(other.GetEqualityComponents());
-
-    public override bool Equals(object? obj) => obj is ValueObject vo && Equals(vo);
-    public override int GetHashCode() =>
-        GetEqualityComponents().Aggregate(0, HashCode.Combine);
+    public abstract IEnumerable<object> GetAtomicValues();
+    // Equals/GetHashCode via GetAtomicValues()
 }
 ```
 
-### 2.2 Result Pattern (Railway-Oriented Programming)
+### 2.4 Value Objects existentes
 
-All operations that can fail return `Result` or `Result<T>`. Never throw exceptions for expected business errors inside Application handlers.
+| Value Object | Regras |
+|---|---|
+| `Email` | não vazio, contém `@`, máx 255 chars |
+| `Grade` | `decimal` entre 0.00 e 10.00 |
+| `PhoneNumber` | existe no domínio mas ainda não aplicado nas entidades |
 
-```csharp
-// Success
-Result.Success()              // Result (void)
-Result.Success<T>(value)      // Result<T>
+Todos retornam `Result<T>` via `Create()`.
 
-// Failure
-Result.Failure(Error.NotFound)
-Result.Failure<T>(new Error("User.DuplicateEmail", "Email already registered."))
-```
+### 2.5 Padrão de Entidade
 
 ```csharp
-public sealed record Error(string Code, string Description)
+public sealed class EducationalInstitution : AggregateRoot
 {
-    public static readonly Error None = new(string.Empty, string.Empty);
-    public static readonly Error NullValue = new("General.Null", "Value cannot be null.");
-    public static readonly Error NotFound = new("General.NotFound", "Resource not found.");
-}
-```
+    public string InstitutionName { get; private set; }
+    public string InstitutionAcronym { get; private set; }
+    public string CampusLocation { get; private set; }
+    public bool IsActive { get; private set; }
 
-**Usage in handlers:**
-```csharp
-var user = await _userRepository.GetByIdAsync(request.Id, ct);
-if (user is null)
-    return Result.Failure<UserDto>(Error.NotFound);
-return Result.Success(user.ToDto());
-```
+    private EducationalInstitution() : base(0) { } // EF Core
 
-### 2.3 Domain Events
+    private EducationalInstitution(string name, string acronym, string location) : base(0)
+    {
+        InstitutionName = name;
+        InstitutionAcronym = acronym;
+        CampusLocation = location;
+        IsActive = true;
+    }
 
-Domain events are `sealed record` types implementing `IDomainEvent` (which extends `INotification`):
-
-```csharp
-public interface IDomainEvent : INotification
-{
-    Guid EventId { get; }
-    DateTime OccurredAt { get; }
-}
-
-public sealed record UserCreatedEvent(
-    Guid EventId,
-    DateTime OccurredAt,
-    Guid UserId,
-    string Email) : IDomainEvent;
-```
-
-**Rules:**
-- Raised inside aggregate methods via `RaiseDomainEvent(new XxxEvent(...))`.
-- Dispatched by `AppDbContext.CommitAsync()` **before** `SaveChangesAsync()` — if a handler fails, the save does not occur.
-- `Ignore(u => u.DomainEvents)` in every EF configuration.
-
-### 2.4 Domain Exceptions
-
-```csharp
-public sealed class DomainException(string message) : Exception(message);
-```
-
-Thrown inside entity factories/methods for invariant violations in entities that **do not** use the `Result<T>` pattern. Caught globally by `ExceptionHandlingMiddleware` → HTTP 400.
-
-### 2.5 Entities — Patterns
-
-**Rules:**
-- Private constructor, private setters on all properties.
-- Creation exclusively via `static` factory method (`Create()`).
-- Factory returns `Result<T>` **or** throws `DomainException` (pick one strategy per entity and be consistent).
-- Child entities of aggregates use `internal static Create()` to prevent external creation.
-- `AggregateRoot` owns `List<ChildEntity>` via private backing field, exposed as `IReadOnlyList`.
-
-```csharp
-public sealed class FoodItem : Entity
-{
-    public Guid FoodCategoryId { get; private set; }
-    public string Name { get; private set; } = default!;
-    public Points Points { get; private set; } = default!;
-
-    private FoodItem() { }
-
-    public static Result<FoodItem> Create(Guid categoryId, string name, int points)
+    public static Result<EducationalInstitution> Create(string name, string acronym, string location)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return Result.Failure<FoodItem>(new Error("FoodItem.InvalidName", "Name is required."));
-
-        return Result.Success(new FoodItem
-        {
-            FoodCategoryId = categoryId,
-            Name = name.Trim(),
-            Points = new Points(points)
-        });
+            return Result.Failure<EducationalInstitution>(new Error("Institution.EmptyName", "Institution name is required."));
+        return Result.Success(new EducationalInstitution(name, acronym, location));
     }
 
-    public Result Update(string name, int points)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return Result.Failure(new Error("FoodItem.InvalidName", "Name is required."));
-        Name = name.Trim();
-        Points = new Points(points);
-        SetUpdatedAt(DateTime.UtcNow);
-        return Result.Success();
-    }
+    public Result UpdateDetails(string name, string acronym, string location) { ... }
+    public void Deactivate() => IsActive = false;
 }
 ```
 
-**AggregateRoot with child collection:**
-```csharp
-public sealed class DailyLog : AggregateRoot
-{
-    private readonly List<DailyLogItem> _items = [];
-    public IReadOnlyList<DailyLogItem> Items => _items.AsReadOnly();
-    public Points TotalPoints { get; private set; } = Points.Zero;
+**Regras:**
+- Construtor `private` vazio para EF Core (`base(0)`).
+- Construtor `private` com parâmetros.
+- Factory `static Result<T> Create(...)` — valida e retorna `Result`.
+- Método `UpdateDetails(...)` retorna `Result` para atualizações.
+- Método `Deactivate()` para soft delete.
+- Entidades filhas de aggregates usam `internal static Create(...)`.
 
-    public Result AddItem(FoodItem food, decimal quantity, string? mealTime)
-    {
-        var item = DailyLogItem.CreateForLog(Id, food.Id, quantity, food.Points, mealTime);
-        _items.Add(item);
-        TotalPoints = TotalPoints.Add(item.PointsComputed);
-        return Result.Success();
-    }
-}
-```
-
-### 2.6 Value Objects
+### 2.6 Result Pattern
 
 ```csharp
-public sealed class Email : ValueObject
-{
-    public string Value { get; }
+// Void
+Result.Success()
+Result.Failure(new Error("Code", "Message"))
 
-    private static readonly Regex _regex =
-        new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+// Com valor
+Result.Success<T>(value)
+Result.Failure<T>(new Error("Code", "Message"))
 
-    private Email(string value) => Value = value;
-
-    public static Result<Email> Create(string email)
-    {
-        if (string.IsNullOrWhiteSpace(email) || !_regex.IsMatch(email))
-            return Result.Failure<Email>(new Error("Email.Invalid", "Invalid email address."));
-        return Result.Success(new Email(email.Trim().ToLowerInvariant()));
-    }
-
-    protected override IEnumerable<object> GetEqualityComponents() { yield return Value; }
-}
-
-public sealed class Points : ValueObject
-{
-    public const int DailyLimit = 300;
-    public static readonly Points Zero = new(0);
-
-    public int Value { get; }
-    public Points(int value) => Value = value >= 0 ? value : throw new DomainException("Points cannot be negative.");
-
-    public Points Add(Points other) => new(Value + other.Value);
-    public Points Subtract(Points other) => new(Math.Max(0, Value - other.Value));
-
-    public static implicit operator int(Points p) => p.Value;
-
-    protected override IEnumerable<object> GetEqualityComponents() { yield return Value; }
-}
+// Uso em handlers
+if (result.IsFailure)
+    return Result.Failure<int>(result.Error);
 ```
 
-### 2.7 Repository Interfaces (defined in Domain)
-
-```csharp
-public interface IRepository<T> where T : Entity
-{
-    Task<T?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<T>> GetAllAsync(CancellationToken cancellationToken = default);
-    Task AddAsync(T entity, CancellationToken cancellationToken = default);
-    Task UpdateAsync(T entity, CancellationToken cancellationToken = default);
-    Task DeleteAsync(T entity, CancellationToken cancellationToken = default);
-}
-
-public interface IUnitOfWork
-{
-    Task<int> CommitAsync(CancellationToken cancellationToken = default);
-}
-```
-
-Specific repository interfaces extend `IRepository<T>` and add domain-specific query methods:
-```csharp
-public interface IUserRepository : IRepository<User>
-{
-    Task<User?> GetByEmailAsync(string email, CancellationToken ct = default);
-    Task<bool> EmailExistsAsync(string email, CancellationToken ct = default);
-    Task<bool> UsernameExistsAsync(string username, CancellationToken ct = default);
-}
-```
+**Nunca lance exceções para erros de negócio esperados dentro de handlers.**
 
 ---
 
 ## 3. Application Layer — CQRS
 
-### 3.1 Structure per Feature
-
-```
-Application/
-  {Feature}/
-    Commands/
-      {Action}/
-        {Action}Command.cs            → sealed record : IRequest<Result<T>>
-        {Action}CommandHandler.cs     → sealed class : IRequestHandler<>
-        {Action}CommandValidator.cs   → sealed class : AbstractValidator<>
-    Queries/
-      {Action}/
-        {Action}Query.cs
-        {Action}QueryHandler.cs
-    DTOs/
-      {Feature}Dto.cs
-```
-
-### 3.2 Command & Query Definition
+### 3.1 Interfaces de Messaging
 
 ```csharp
-// Command (mutates state)
-public sealed record CreateUserCommand(
-    string FullName,
-    string Email,
-    string Username,
-    string Password,
-    Gender Gender,
-    string? PhoneNumber) : IRequest<Result<Guid>>;
+// Command sem retorno de dados
+public interface ICommand : IRequest<Result> { }
 
-// Query (read-only)
-public sealed record GetUserByIdQuery(Guid UserId) : IRequest<Result<UserDto>>;
+// Command que retorna um valor (ex: ID criado)
+public interface ICommand<TResponse> : IRequest<Result<TResponse>> { }
+
+// Handler de command sem retorno
+public interface ICommandHandler<TCommand> : IRequestHandler<TCommand, Result>
+    where TCommand : ICommand { }
+
+// Handler de command com retorno
+public interface ICommandHandler<TCommand, TResponse> : IRequestHandler<TCommand, Result<TResponse>>
+    where TCommand : ICommand<TResponse> { }
+
+// Query (sempre retorna valor)
+public interface IQuery<TResponse> : IRequest<Result<TResponse>> { }
+public interface IQueryHandler<TQuery, TResponse> : IRequestHandler<TQuery, Result<TResponse>>
+    where TQuery : IQuery<TResponse> { }
 ```
 
-### 3.3 Handler Pattern
+### 3.2 Estrutura por Feature
+
+```
+Application/Features/
+  {Aggregate}/
+    Create/
+      CreateXxxCommand.cs          ← sealed record : ICommand<int>
+      CreateXxxCommandHandler.cs   ← sealed class : ICommandHandler<Cmd, int>
+      CreateXxxCommandValidator.cs ← sealed class : AbstractValidator<Cmd>
+    Update/
+      UpdateXxxCommand.cs          ← sealed record : ICommand  (sem retorno de dados)
+      UpdateXxxCommandHandler.cs
+      UpdateXxxCommandValidator.cs
+    GetAll/
+      GetAllXxxQuery.cs            ← sealed record : IQuery<IReadOnlyCollection<XxxResponse>>
+      GetAllXxxQueryHandler.cs
+    GetById/
+      GetXxxByIdQuery.cs           ← sealed record : IQuery<XxxResponse>
+      GetXxxByIdQueryHandler.cs
+    XxxResponse.cs                 ← sealed record (DTO de leitura)
+```
+
+### 3.3 Padrão de Command
 
 ```csharp
-public sealed class CreateUserCommandHandler(
-    IUserRepository userRepository,
-    IPasswordHasher passwordHasher,
-    IUnitOfWork unitOfWork)
-    : IRequestHandler<CreateUserCommand, Result<Guid>>
+// OBRIGATÓRIO: sempre adicionar o using da camada de messaging
+using SyllabusTrack.Application.Abstractions.Messaging;
+
+namespace SyllabusTrack.Application.Features.Institutions.Update
 {
-    public async Task<Result<Guid>> Handle(
-        CreateUserCommand request, CancellationToken cancellationToken)
-    {
-        if (await userRepository.EmailExistsAsync(request.Email, cancellationToken))
-            return Result.Failure<Guid>(new Error("User.DuplicateEmail", "Email already registered."));
-
-        var userResult = User.Create(request.FullName, request.Email, request.Username,
-            passwordHasher.Hash(request.Password), request.Gender, request.PhoneNumber);
-
-        if (!userResult.IsSuccess)
-            return Result.Failure<Guid>(userResult.Error);
-
-        await userRepository.AddAsync(userResult.Value, cancellationToken);
-        await unitOfWork.CommitAsync(cancellationToken);
-
-        return Result.Success(userResult.Value.Id);
-    }
+    public sealed record UpdateInstitutionCommand(
+        int InstitutionId,
+        string Name,
+        string Acronym,
+        string Location) : ICommand;  // ICommand sem tipo = sem retorno de dados
 }
 ```
 
-### 3.4 MediatR Pipeline Behaviors
-
-Registered in this order:
-1. **`LoggingBehavior<TRequest, TResponse>`** — logs request name before and after handling.
-2. **`ValidationBehavior<TRequest, TResponse>`** — runs all `IValidator<TRequest>` instances; throws `FluentValidation.ValidationException` if any fail (caught by middleware → HTTP 422).
+### 3.4 Padrão de Handler (Command com retorno)
 
 ```csharp
-services.AddMediatR(cfg =>
+internal sealed class CreateInstitutionCommandHandler(
+    IEducationalInstitutionRepository repository,
+    IUnitOfWork unitOfWork) : ICommandHandler<CreateInstitutionCommand, int>
 {
-    cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly());
-    cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
-    cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
-});
-services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
+    public async Task<Result<int>> Handle(CreateInstitutionCommand request, CancellationToken cancellationToken)
+    {
+        var result = EducationalInstitution.Create(request.Name, request.Acronym, request.Location);
+        if (result.IsFailure)
+            return Result.Failure<int>(result.Error);
+
+        await repository.AddAsync(result.Value, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+
+        return Result.Success(result.Value.Id);
+    }
+}
 ```
 
 ### 3.5 FluentValidation
 
 ```csharp
-public sealed class CreateUserCommandValidator : AbstractValidator<CreateUserCommand>
+public sealed class CreateInstitutionCommandValidator : AbstractValidator<CreateInstitutionCommand>
 {
-    public CreateUserCommandValidator()
+    public CreateInstitutionCommandValidator()
     {
-        RuleFor(x => x.FullName).NotEmpty().MaximumLength(150);
-        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(150);
-        RuleFor(x => x.Username)
-            .NotEmpty().MinimumLength(3).MaximumLength(80)
-            .Matches("^[a-z0-9._]+$").WithMessage("Username may only contain lowercase letters, digits, dots, and underscores.");
-        RuleFor(x => x.Password)
-            .NotEmpty().MinimumLength(8)
-            .Matches("[A-Z]").WithMessage("Password must contain at least one uppercase letter.")
-            .Matches("[0-9]").WithMessage("Password must contain at least one digit.");
-        RuleFor(x => x.Gender).IsInEnum();
-        RuleFor(x => x.PhoneNumber).MaximumLength(20).When(x => x.PhoneNumber is not null);
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
+        RuleFor(x => x.Acronym).MaximumLength(50);
+        RuleFor(x => x.Location).MaximumLength(255);
     }
 }
 ```
 
-**Rules:**
-- One validator class per command.
-- Validators are auto-discovered from the Application assembly.
-- Domain invariants (complex business rules) go in the entity factory, not the validator.
-- Application-level checks (duplicates, existence) go in the handler before calling the domain.
-
-### 3.6 DTOs
-
-```csharp
-// All DTOs are sealed records — no AutoMapper; manual projection in query handlers
-public sealed record UserDto(Guid Id, string FullName, string Email, string Username, DateTime CreatedAt);
-
-// Query handler projection
-public async Task<Result<UserDto>> Handle(GetUserByIdQuery request, CancellationToken ct)
-{
-    var user = await _userRepository.GetByIdAsync(request.UserId, ct);
-    if (user is null) return Result.Failure<UserDto>(Error.NotFound);
-
-    return Result.Success(new UserDto(user.Id, user.FullName, user.Email.Value, user.Username, user.CreatedAt));
-}
-```
-
-### 3.7 Application Service Interfaces
-
-Defined in Application layer, implemented in Infrastructure:
-```csharp
-public interface ICurrentUser { Guid Id { get; } string Username { get; } bool IsAuthenticated { get; } }
-public interface IPasswordHasher { string Hash(string password); bool Verify(string password, string hash); }
-public interface ITokenService { string GenerateToken(User user); }
-```
+**Regra:** validações de formato/tamanho → FluentValidation. Regras de negócio complexas → entity factory.
 
 ---
 
 ## 4. Infrastructure Layer
 
-### 4.1 AppDbContext
+### 4.1 Repositórios — Regra de Tracking
 
-```csharp
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IMediator mediator)
-    : DbContext(options), IUnitOfWork
-{
-    public DbSet<User> Users => Set<User>();
-    // ... other DbSets
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
-        modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
-
-    public async Task<int> CommitAsync(CancellationToken cancellationToken = default)
-    {
-        // Dispatch domain events BEFORE saving — atomic with persistence
-        var aggregates = ChangeTracker.Entries<AggregateRoot>()
-            .Where(e => e.Entity.DomainEvents.Any())
-            .Select(e => e.Entity)
-            .ToList();
-
-        var events = aggregates.SelectMany(a => a.DomainEvents).ToList();
-        aggregates.ForEach(a => a.ClearDomainEvents());
-
-        foreach (var evt in events)
-            await mediator.Publish(evt, cancellationToken);
-
-        return await SaveChangesAsync(cancellationToken);
-    }
-}
+```
+❌ AsNoTracking()  →  NUNCA use em métodos chamados para UPDATE
+✅ AsNoTracking()  →  use em consultas/leituras puras (melhor performance)
 ```
 
-**Registration:**
-```csharp
-services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<AppDbContext>());
-```
+| Método | AsNoTracking? |
+|---|---|
+| `GetByIdAsync` (chamado em UpdateHandler) | ❌ NÃO |
+| `GetByIdWithSyllabusAsync` (chamado em UpdateHandler) | ❌ NÃO |
+| `GetAllActiveAsync` | ✅ SIM |
+| `GetByStudentIdAsync` | ✅ SIM |
+| `GetByModuleIdAsync` | ✅ SIM |
 
-### 4.2 EF Core Entity Configurations
-
-All via `IEntityTypeConfiguration<T>` — auto-discovered with `ApplyConfigurationsFromAssembly`.
-
-```csharp
-public sealed class UserConfiguration : IEntityTypeConfiguration<User>
-{
-    public void Configure(EntityTypeBuilder<User> builder)
-    {
-        builder.HasKey(u => u.Id);
-
-        // Value object — OwnsOne maps to columns in same table
-        builder.OwnsOne(u => u.Email, email =>
-        {
-            email.Property(e => e.Value).HasColumnName("Email").HasMaxLength(150).IsRequired();
-            email.HasIndex(e => e.Value).IsUnique();
-        });
-
-        // Value object — HasConversion for simpler types
-        builder.Property(u => u.PhoneNumber)
-            .HasConversion(v => v!.Value, v => PhoneNumber.Create(v).Value);
-
-        // Enum stored as string
-        builder.Property(u => u.Gender).HasConversion<string>();
-
-        // Domain events are NOT persisted
-        builder.Ignore(u => u.DomainEvents);
-
-        builder.HasIndex(u => u.Username).IsUnique();
-    }
-}
-
-public sealed class DailyLogConfiguration : IEntityTypeConfiguration<DailyLog>
-{
-    public void Configure(EntityTypeBuilder<DailyLog> builder)
-    {
-        builder.HasKey(d => d.Id);
-
-        // SMALLINT for Points
-        builder.OwnsOne(d => d.TotalPoints, tp =>
-            tp.Property(p => p.Value).HasColumnName("TotalPoints").HasColumnType("SMALLINT")
-              .HasConversion(v => (short)v, v => (int)v));
-
-        // Unique composite index
-        builder.HasIndex(d => new { d.UserId, d.LogDate }).IsUnique();
-
-        // Owned collection
-        builder.HasMany(d => d.Items)
-            .WithOne()
-            .HasForeignKey(i => i.DailyLogId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        builder.Ignore(d => d.DomainEvents);
-    }
-}
-```
-
-**Key patterns:**
-- `OwnsOne` for complex value objects (mapped to same table).
-- `HasConversion` for simple value objects (one primitive property).
-- `HasConversion<string>()` for enums.
-- `SMALLINT` for `Points` → explicit `HasConversion(v => (short)v, v => (int)v)`.
-- All aggregate roots: `builder.Ignore(u => u.DomainEvents)`.
-- Unique indexes for business-key uniqueness constraints.
-- `OnDelete(DeleteBehavior.Cascade)` for owned collections.
-
-### 4.3 Repository Implementation
+### 4.2 Interfaces de Repositório (definidas no Domain)
 
 ```csharp
-public abstract class BaseRepository<T>(AppDbContext context) : IRepository<T>
-    where T : Entity
-{
-    protected readonly AppDbContext Context = context;
-    protected DbSet<T> DbSet => Context.Set<T>();
+// IEducationalInstitutionRepository
+Task AddAsync(EducationalInstitution institution, CancellationToken ct = default);
+Task<EducationalInstitution?> GetByIdAsync(int id, CancellationToken ct = default);
+Task<IEnumerable<EducationalInstitution>> GetAllActiveAsync(CancellationToken ct = default);
 
-    public virtual async Task<T?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
-        await DbSet.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, ct);
+// IDegreeProgramRepository
+Task AddAsync(DegreeProgram program, CancellationToken ct = default);
+Task<DegreeProgram?> GetByIdWithSyllabusAsync(int id, CancellationToken ct = default);
+Task<IEnumerable<DegreeProgram>> GetAllActiveAsync(CancellationToken ct = default);
 
-    public virtual async Task<IReadOnlyList<T>> GetAllAsync(CancellationToken ct = default) =>
-        await DbSet.AsNoTracking().ToListAsync(ct);
+// IAcademicSubjectRepository
+Task AddAsync(AcademicSubject subject, CancellationToken ct = default);
+Task<AcademicSubject?> GetByIdAsync(int id, CancellationToken ct = default);
+Task<IEnumerable<AcademicSubject>> GetByModuleIdAsync(int moduleId, CancellationToken ct = default);
 
-    public virtual async Task AddAsync(T entity, CancellationToken ct = default) =>
-        await DbSet.AddAsync(entity, ct);
+// IStudentAccountRepository
+Task AddAsync(StudentAccount student, CancellationToken ct = default);
+Task<StudentAccount?> GetByIdAsync(int id, CancellationToken ct = default);
+Task<StudentAccount?> GetByEmailOrUsernameAsync(string identifier, CancellationToken ct = default);
+Task<bool> IsEmailUniqueAsync(Email email, CancellationToken ct = default);
+Task<bool> IsUsernameUniqueAsync(string username, CancellationToken ct = default);
 
-    public virtual async Task UpdateAsync(T entity, CancellationToken ct = default)
-    {
-        // Only attach if detached — change tracker may already be tracking it
-        if (Context.Entry(entity).State == EntityState.Detached)
-            DbSet.Update(entity);
-    }
-
-    public virtual async Task DeleteAsync(T entity, CancellationToken ct = default) =>
-        DbSet.Remove(entity);
-}
+// IStudentEnrollmentRepository
+Task AddAsync(StudentEnrollment enrollment, CancellationToken ct = default);
+Task<StudentEnrollment?> GetByIdWithProgressAsync(int id, CancellationToken ct = default);
+Task<IEnumerable<StudentEnrollment>> GetByStudentIdAsync(int studentId, CancellationToken ct = default);
 ```
 
-**Rules:**
-- Always `AsNoTracking()` on reads unless the entity will be modified in the same scope.
-- Override `GetByIdAsync` when eager loading is needed (`Include().ThenInclude()`).
-- When EF tracking causes issues with private backing fields (e.g., `List<T>` via property), use `ExecuteUpdateAsync` raw SQL instead.
+### 4.3 EF Core — Configurações
 
-### 4.4 Infrastructure Services
+Todas via `IEntityTypeConfiguration<T>`, auto-descobertas com `ApplyConfigurationsFromAssembly`.
 
-**JWT:**
 ```csharp
-public sealed class JwtTokenService(IOptions<JwtSettings> settings) : ITokenService
-{
-    public string GenerateToken(User user)
-    {
-        var claims = new[]
-        {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email.Value),
-            new Claim(ClaimTypes.Name, user.Username),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-        };
-        // Sign with HmacSha256, 8-hour expiration
-    }
-}
+// Value Object simples (HasConversion)
+builder.Property(s => s.EmailAddress)
+    .HasColumnName("EmailAddress")
+    .HasConversion(
+        email => email.Value,
+        value => Email.Create(value).Value);
+
+// Value Object nullable
+builder.Property(p => p.FinalGrade)
+    .HasConversion(
+        grade => grade != null ? (decimal?)grade.Value : null,
+        value => value.HasValue ? Grade.Create(value.Value).Value : null);
+
+// Coleção privada com backing field
+builder.HasMany(e => e.Progresses)
+    .WithOne()
+    .HasForeignKey(p => p.EnrollmentId)
+    .OnDelete(DeleteBehavior.Cascade);
+builder.Navigation(e => e.Progresses)
+    .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+// FK entre aggregates: sempre Restrict (não Cascade)
+builder.HasOne<EducationalInstitution>()
+    .WithMany()
+    .HasForeignKey(p => p.InstitutionId)
+    .OnDelete(DeleteBehavior.Restrict);
 ```
 
-**Password hashing:**
-```csharp
-public sealed class PasswordHasher : IPasswordHasher
-{
-    public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
-    public bool Verify(string password, string hash) => BCrypt.Net.BCrypt.Verify(password, hash);
-}
-```
+### 4.4 Segurança
 
-**Current user (reads from HttpContext):**
-```csharp
-public sealed class CurrentUserService(IHttpContextAccessor accessor) : ICurrentUser
-{
-    public Guid Id => Guid.Parse(accessor.HttpContext!.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-    public string Username => accessor.HttpContext!.User.FindFirstValue(ClaimTypes.Name)!;
-    public bool IsAuthenticated => accessor.HttpContext?.User.Identity?.IsAuthenticated ?? false;
-}
-```
-
-**External AI integration (Anti-Corruption Layer):**
-```csharp
-// Pure HTTP client — single responsibility
-public sealed class GeminiHttpClient(HttpClient httpClient, IOptions<GeminiSettings> settings) { ... }
-
-// Domain translation — wraps HTTP client, returns domain types
-public sealed class GeminiVisionService(GeminiHttpClient client) : IGeminiVisionService
-{
-    public async Task<FoodPhotoAnalysisResult> AnalyzeAsync(byte[] imageBytes, string mimeType, CancellationToken ct)
-    {
-        // Build multipart vision request with base64-encoded image
-        // Parse JSON response, strip markdown fences
-        // Return domain record FoodPhotoAnalysisResult
-    }
-}
-```
+- **Senha:** `BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12)` / `BCrypt.Net.BCrypt.Verify(password, hash)`
+- **A procedure `usp_AuthenticateStudent` NÃO valida senha** — apenas retorna o usuário pelo identificador. A verificação do hash BCrypt é feita em `IPasswordHasher.Verify()` no C#.
+- **JWT:** assina com `HmacSha256`, configurável via `appsettings.json` (Issuer, Audience, SecretKey, ExpirationMinutes).
 
 ---
 
 ## 5. API Layer
 
-### 5.1 BaseApiController
+### 5.1 ApiController Base
 
 ```csharp
 [ApiController]
 [Route("api/[controller]")]
-public abstract class BaseApiController(IMediator mediator) : ControllerBase
+[Produces("application/json")]
+public abstract class ApiController : ControllerBase
 {
-    protected readonly IMediator Mediator = mediator;
+    protected IActionResult HandleResult(Result result)
+        => result.IsSuccess ? NoContent() : BadRequest(ProblemFrom(result.Error));
 
-    protected IActionResult FromResult<T>(Result<T> result) =>
-        result.IsSuccess ? Ok(result.Value) : Problem(result.Error);
-
-    protected IActionResult FromResult(Result result) =>
-        result.IsSuccess ? NoContent() : Problem(result.Error);
-
-    private IActionResult Problem(Error error) => error.Code switch
-    {
-        "General.NotFound" => NotFound(new { error.Code, error.Description }),
-        _ => BadRequest(new { error.Code, error.Description })
-    };
+    protected IActionResult HandleResult<T>(Result<T> result)
+        => result.IsSuccess ? Ok(result.Value) : BadRequest(ProblemFrom(result.Error));
 }
 ```
 
-### 5.2 Controller Pattern
+### 5.2 Padrão de Controller
 
 ```csharp
 [Authorize]
-public sealed class DailyLogsController(IMediator mediator, ICurrentUser currentUser)
-    : BaseApiController(mediator)
+public sealed class InstitutionsController(ISender sender) : ApiController
 {
-    [HttpGet("{date:datetime}")]
-    public async Task<IActionResult> GetByDate(DateTime date, CancellationToken ct) =>
-        FromResult(await Mediator.Send(new GetDailyLogByDateQuery(currentUser.Id, date), ct));
+    [HttpGet]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+        => HandleResult(await sender.Send(new GetAllInstitutionsQuery(), ct));
+
+    [HttpGet("{id:int}", Name = "GetInstitutionById")]
+    public async Task<IActionResult> GetById(int id, CancellationToken ct)
+    {
+        var result = await sender.Send(new GetInstitutionByIdQuery(id), ct);
+        if (result.IsFailure)
+            return NotFound(new ProblemDetails { Title = "Not Found", Detail = result.Error.Message });
+        return Ok(result.Value);
+    }
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateDailyLogRequest request, CancellationToken ct) =>
-        FromResult(await Mediator.Send(
-            new CreateDailyLogCommand(currentUser.Id, request.LogDate, request.Notes), ct));
-}
-
-// Request DTOs — inline sealed records in controller file
-internal sealed record CreateDailyLogRequest(DateTime LogDate, string? Notes);
-```
-
-### 5.3 Exception Handling Middleware
-
-```csharp
-// Registered FIRST in the pipeline
-public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
-{
-    public async Task InvokeAsync(HttpContext context)
+    public async Task<IActionResult> Create([FromBody] CreateInstitutionCommand command, CancellationToken ct)
     {
-        try { await next(context); }
-        catch (DomainException ex)
-        {
-            context.Response.StatusCode = 400;
-            await WriteError(context, "DOMAIN_ERROR", ex.Message);
-        }
-        catch (ValidationException ex)
-        {
-            context.Response.StatusCode = 422;
-            await WriteValidationErrors(context, ex.Errors);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Unhandled exception");
-            context.Response.StatusCode = 500;
-            await WriteError(context, "INTERNAL_ERROR", "An unexpected error occurred.");
-        }
+        var result = await sender.Send(command, ct);
+        if (result.IsFailure)
+            return BadRequest(...);
+        return CreatedAtRoute("GetInstitutionById", new { id = result.Value }, new { institutionId = result.Value });
     }
+
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateInstitutionRequest request, CancellationToken ct)
+        => HandleResult(await sender.Send(new UpdateInstitutionCommand(id, request.Name, request.Acronym, request.Location), ct));
 }
+
+// Request body separado do Command quando há parâmetro de rota
+public sealed record UpdateInstitutionRequest(string Name, string Acronym, string Location);
 ```
 
-**Error response formats:**
-```json
-// DomainException → 400
-{ "code": "DOMAIN_ERROR", "message": "Points cannot be negative." }
+**Auth:** `AuthController` **não** tem `[Authorize]` (endpoints públicos: `POST /register` e `POST /login`). Todos os demais controllers têm `[Authorize]`.
 
-// ValidationException → 422
-{ "code": "VALIDATION_ERROR", "message": "Validation failed.", "errors": [{ "property": "Email", "message": "Invalid email address." }] }
-
-// Unhandled → 500
-{ "code": "INTERNAL_ERROR", "message": "An unexpected error occurred." }
-```
+**Named routes:** todo `HttpGet("{id:int}")` deve ter `Name = "GetXxxById"` para o `CreatedAtRoute` do POST funcionar. Nunca usar `CreatedAtRoute` com nome de rota que não existe.
 
 ---
 
-## 6. Database Schema
+## 6. Banco de Dados — Padrões SQL
 
-All PKs are `UNIQUEIDENTIFIER`. All tables have `CreatedAt` and `UpdatedAt` where applicable.
+### 6.1 Stored Procedures
+
+Todas as procedures seguem o padrão `@Action CHAR(1)` com `'I'`, `'U'`, `'D'`, `'S'`, **exceto** `usp_AuthenticateStudent` (propósito único).
 
 ```sql
--- Users
-CREATE TABLE Users (
-    Id              UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    FullName        NVARCHAR(150)   NOT NULL,
-    Email           NVARCHAR(150)   NOT NULL UNIQUE,
-    PhoneNumber     NVARCHAR(20),
-    BirthDate       DATE,
-    Gender          NVARCHAR(10)    NOT NULL,  -- 'Male' | 'Female' | 'Other'
-    Username        NVARCHAR(80)    NOT NULL UNIQUE,
-    PasswordHash    NVARCHAR(255)   NOT NULL,
-    IsActive        BIT             NOT NULL DEFAULT 1,
-    CreatedAt       DATETIME2       NOT NULL,
-    UpdatedAt       DATETIME2
-);
+-- CERTO: a procedure retorna o usuário, o C# faz a verificação do hash BCrypt
+CREATE PROCEDURE usp_AuthenticateStudent @LoginIdentifier VARCHAR(255)
+AS BEGIN
+    SELECT StudentId, ..., AccountPassword
+    FROM StudentAccount
+    WHERE (LoginUsername = @LoginIdentifier OR EmailAddress = @LoginIdentifier) AND IsActive = 1;
+END
 
--- DailyLog — one per user per date
-CREATE TABLE DailyLog (
-    Id              UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    UserId          UNIQUEIDENTIFIER NOT NULL REFERENCES Users(Id),
-    LogDate         DATE             NOT NULL,
-    TotalPoints     SMALLINT         NOT NULL DEFAULT 0,
-    Notes           NVARCHAR(500),
-    CreatedAt       DATETIME2        NOT NULL,
-    UpdatedAt       DATETIME2,
-    CONSTRAINT UQ_DailyLog_User_Date UNIQUE (UserId, LogDate)
-);
-
--- DailyLogItem
-CREATE TABLE DailyLogItem (
-    Id              UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    DailyLogId      UNIQUEIDENTIFIER NOT NULL REFERENCES DailyLog(Id) ON DELETE CASCADE,
-    FoodItemId      UNIQUEIDENTIFIER NOT NULL REFERENCES FoodItem(Id),
-    Quantity        DECIMAL(5,2)     NOT NULL,
-    PointsComputed  SMALLINT         NOT NULL,
-    MealTime        NVARCHAR(30),
-    Notes           NVARCHAR(300)
-);
-
--- ExamRequestItem — unique exam per request
-CONSTRAINT UQ_ExamRequestItem_Request_Exam UNIQUE (ExamRequestId, ExamId)
+-- ERRADO: nunca comparar senha em plain text no SQL
+-- AND AccountPassword = @AccountPassword  ← NUNCA (senha é hash BCrypt)
 ```
 
-**Key design decisions:**
-- `SMALLINT` for all Points columns (max 32,767; daily limit is 300).
-- `NVARCHAR` for all text (Unicode support).
-- Soft deletes via `IsActive BIT` on reference tables (FoodItem, Exam, etc.).
-- Cascade delete on owned item collections only.
+### 6.2 Índices
+
+Todas as colunas FK têm índice explícito criado após a criação das tabelas. Índice composto em `StudentProgress(EnrollmentId, SubjectId)` com `INCLUDE (CompletionStatus, FinalGrade)`.
+
+### 6.3 Dados de Seed
+
+`SeedData.sql` contém o currículo real de Medicina da UnirG (Matriz Curricular Nº 5) — 12 períodos, ~50 módulos, ~90 disciplinas + estágios + optativas. Não altere sem confirmação com o usuário.
 
 ---
 
-## 7. Testing Strategy
+## 7. Testes — BDD com Reqnroll
 
-### 7.1 BDD with Reqnroll (Gherkin)
-
-Tests are written as Gherkin feature files. Each scenario tests one Application layer behavior in isolation.
-
-**Feature file structure:**
 ```gherkin
-Feature: User Registration
+Feature: Cadastro de Instituição
 
-  Scenario: Successfully register a new user
-    Given no user exists with email "john@example.com"
-    When I register with email "john@example.com" and password "Password1"
-    Then the registration should succeed
+  Scenario: Cadastrar instituição com sucesso
+    When cadastro a instituição "Fundação UnirG" com sigla "UnirG" e localização "Gurupi"
+    Then o cadastro deve ter sucesso e retornar um ID positivo
 
-  Scenario: Reject duplicate email
-    Given a user already exists with email "john@example.com"
-    When I register with email "john@example.com" and password "Password1"
-    Then the registration should fail with error "User.DuplicateEmail"
-
-  Scenario: Reject weak password
-    Given no user exists with email "test@example.com"
-    When I register with email "test@example.com" and password "weak"
-    Then the registration should fail with a validation error
+  Scenario: Rejeitar nome vazio
+    When cadastro a instituição "" com sigla "X" e localização "Y"
+    Then o cadastro deve falhar com o erro "Institution.EmptyName"
 ```
-
-### 7.2 Step Definition Pattern
 
 ```csharp
 [Binding]
-public sealed class UserRegistrationSteps
+public sealed class InstitutionSteps
 {
-    // NSubstitute mocks — created fresh per scenario
-    private readonly IUserRepository _userRepository = Substitute.For<IUserRepository>();
-    private readonly IPasswordHasher _passwordHasher = Substitute.For<IPasswordHasher>();
-    private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+    private readonly IEducationalInstitutionRepository _repo = Substitute.For<IEducationalInstitutionRepository>();
+    private readonly IUnitOfWork _uow = Substitute.For<IUnitOfWork>();
+    private Result<int> _result = default!;
 
-    private Result<Guid> _result = default!;
-
-    [Given("no user exists with email {string}")]
-    public void GivenNoUserWithEmail(string email) =>
-        _userRepository.EmailExistsAsync(email.ToLower()).Returns(false);
-
-    [Given("a user already exists with email {string}")]
-    public void GivenUserWithEmail(string email) =>
-        _userRepository.EmailExistsAsync(email.ToLower()).Returns(true);
-
-    [When("I register with email {string} and password {string}")]
-    public async Task WhenRegister(string email, string password)
+    [When("cadastro a instituição {string} com sigla {string} e localização {string}")]
+    public async Task WhenCadastro(string name, string acronym, string location)
     {
-        var handler = new CreateUserCommandHandler(_userRepository, _passwordHasher, _unitOfWork);
-        _result = await handler.Handle(new CreateUserCommand("John Doe", email, "john", password, Gender.Male, null), default);
+        var handler = new CreateInstitutionCommandHandler(_repo, _uow);
+        _result = await handler.Handle(new CreateInstitutionCommand(name, acronym, location), default);
     }
 
-    [Then("the registration should succeed")]
-    public void ThenSucceeds() =>
-        _result.IsSuccess.Should().BeTrue();
+    [Then("o cadastro deve ter sucesso e retornar um ID positivo")]
+    public void ThenSucesso() => _result.IsSuccess.Should().BeTrue();
 
-    [Then("the registration should fail with error {string}")]
-    public void ThenFailsWith(string errorCode) =>
-        _result.Error.Code.Should().Be(errorCode);
+    [Then("o cadastro deve falhar com o erro {string}")]
+    public void ThenFalha(string code) => _result.Error.Code.Should().Be(code);
 }
 ```
 
-### 7.3 Test Frameworks and Roles
-
-| Framework | Role |
-|---|---|
-| Reqnroll 2.4+ | BDD runner — Gherkin `.feature` files + `[Binding]` step classes |
-| xUnit 2.9+ | Underlying test runner |
-| NSubstitute 5+ | Mocking: `Substitute.For<T>()`, `.Returns()`, `.Received()` |
-| FluentAssertions 6+ | Assertions: `.Should().BeTrue()`, `.Should().Be()`, `.Should().Contain()` |
-| coverlet.collector | Code coverage reporting |
-
-### 7.4 Test Scope and Coverage Areas
-
-**What is tested:**
-- Application command handlers (happy path + error cases).
-- FluentValidation validators (invalid inputs rejected).
-- Domain entity factories (via handler tests).
-
-**What is NOT tested (pragmatic decision):**
-- EF Core repositories (no in-memory or test-database setup).
-- API controllers (no WebApplicationFactory).
-- Infrastructure services (JWT, BCrypt, Gemini — tested via integration/E2E separately).
-
-### 7.5 Naming Conventions
-
-- Feature files: `{Feature}.feature` (e.g., `UserRegistration.feature`, `DailyLog.feature`).
-- Step classes: `{Feature}Steps` (e.g., `UserRegistrationSteps`, `DailyLogSteps`).
-- Scenario names: Natural English sentences describing the behavior.
-- Step parameters: Use `{string}`, `{int}`, `{decimal}` Reqnroll data types.
-
-### 7.6 Test Isolation
-
-Each `[Binding]` class creates its own mock instances as field initializers — no shared state across scenarios. No test database, no WebApplicationFactory. All dependencies mocked via NSubstitute.
-
 ---
 
-## 8. Frontend Architecture
+## 8. Checklist — Adicionando uma Nova Feature
 
-### 8.1 Feature-Sliced Structure
-
-```
-src/
-  core/
-    api/client.ts          → Axios singleton + Bearer interceptor + 401 redirect
-    auth/authStore.ts      → Zustand store (token, user, login, logout) — persisted
-    auth/ProtectedRoute.tsx → Route guard — redirects to /login if not authenticated
-    router/AppRouter.tsx   → createBrowserRouter with lazy-loaded pages
-    queryClient.ts         → TanStack Query client configuration
-  design-system/
-    components/            → Button, Input, Card, Spinner, Nav, Footer
-    tokens.css / tokens.ts → Design tokens (colors, spacing, typography)
-    global.css
-  features/
-    auth/                  → api/, hooks/ (useLogin, useRegister), pages/, types/
-    dashboard/             → api/, hooks/, pages/
-    food-log/              → api/, hooks/, pages/, types/
-    exams/                 → api/, hooks/, pages/, types/
-    admin/                 → api/, hooks/, pages/ (FoodItems, FoodCategories, Exams, ExamCategories)
-    users/                 → api/, hooks/, pages/, types/
-  shared/
-    components/Spinner/
-```
-
-### 8.2 Auth State (Zustand)
-
-```typescript
-// core/auth/authStore.ts
-interface AuthState {
-  token: string | null;
-  user: AuthUser | null;
-  login: (token: string, user: AuthUser) => void;
-  logout: () => void;
-}
-
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      token: null,
-      user: null,
-      login: (token, user) => set({ token, user }),
-      logout: () => set({ token: null, user: null }),
-    }),
-    { name: 'pte-auth', partialize: (s) => ({ token: s.token, user: s.user }) }
-  )
-);
-```
-
-### 8.3 HTTP Client
-
-```typescript
-// core/api/client.ts
-export const apiClient = axios.create({ baseURL: import.meta.env.VITE_API_URL });
-
-apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-apiClient.interceptors.response.use(
-  (r) => r,
-  (error) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().logout();
-      window.location.replace('/login');
-    }
-    return Promise.reject(error);
-  }
-);
-```
-
-### 8.4 Data Fetching Pattern (React Query)
-
-```typescript
-// features/food-log/hooks/useTodayLog.ts
-export const useTodayLog = (date: string) =>
-  useQuery({ queryKey: ['daily-log', date], queryFn: () => getDailyLog(date) });
-
-// features/food-log/hooks/useAddLogItem.ts
-export const useAddLogItem = (logId: string) => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: AddLogItemRequest) => addLogItem(logId, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['daily-log'] }),
-  });
-};
-```
-
-### 8.5 Form Pattern (React Hook Form + Zod)
-
-```typescript
-const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-});
-
-const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>({
-  resolver: zodResolver(schema),
-});
-```
-
-### 8.6 Route Protection
-
-```typescript
-// core/auth/ProtectedRoute.tsx
-export const ProtectedRoute = () => {
-  const { token } = useAuthStore();
-  const location = useLocation();
-  if (!token) return <Navigate to="/login" state={{ from: location }} replace />;
-  return <Outlet />;
-};
-```
-
-### 8.7 Code Splitting
-
-All page-level components use `React.lazy()`:
-```typescript
-const DashboardPage = lazy(() => import('../features/dashboard/pages/DashboardPage'));
-// Wrapped in <Suspense fallback={<Spinner fullPage />}> in AppRouter
-```
-
----
-
-## 9. Key Architectural Decisions
-
-1. **No AutoMapper** — All DTO projections are manual `sealed record` construction inside query handlers. Keeps mappings explicit and searchable.
-
-2. **Domain events dispatched pre-save** — `CommitAsync()` publishes events before `SaveChangesAsync()`. Event handlers and persistence are atomic within one DbContext scope.
-
-3. **`AppDbContext` implements `IUnitOfWork`** — Registered as `services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<AppDbContext>())`. No separate UoW wrapper needed.
-
-4. **Mixed error strategies** — Some entities throw `DomainException`, others return `Result<T>`. New entities should prefer `Result<T>` for consistency.
-
-5. **Raw SQL for EF tracking edge cases** — When EF's change tracker conflicts with private backing fields (e.g., updating `TotalPoints` after inserting a child), use `ExecuteUpdateAsync` with raw SQL rather than fighting the ORM.
-
-6. **BDD-first testing** — Tests are written from the outside in (behavior → implementation). Gherkin scenarios serve as living documentation. No test databases; all tests are unit-level with NSubstitute mocks.
-
-7. **Gemini Vision ACL** — External AI API has two layers: `GeminiHttpClient` (raw HTTP, single responsibility) and `GeminiVisionService` (domain translation). The domain interface `IGeminiVisionService` is defined in Domain, preventing leakage of HTTP concerns.
-
-8. **Points formula** — `(portionGrams / 100) * caloriesPer100g * 0.24` computed in `AnalyzeFoodPhotoCommandHandler`.
-
----
-
-## 10. Checklist — Adding a New Feature
-
-When adding a new feature (e.g., `WeightLog`), follow this order:
-
-- [ ] **Domain**: Define entity/aggregate extending `Entity` or `AggregateRoot`; private constructor + static factory returning `Result<T>`; value objects if needed; domain events if state changes matter; repository interface in `Domain/Interfaces/Repositories/`
-- [ ] **EF Config**: Add `IEntityTypeConfiguration<T>` in Infrastructure; configure value objects, indexes, cascade behavior; add `DbSet<T>` to `AppDbContext`; run `dotnet ef migrations add`
-- [ ] **Repository**: Implement `BaseRepository<T>` in Infrastructure; override methods that need eager loading or tracking
-- [ ] **DI**: Register repository as scoped in `AddInfrastructure()`
-- [ ] **Application Commands**: Create `{Action}Command` (sealed record), `{Action}CommandHandler`, `{Action}CommandValidator`
-- [ ] **Application Queries**: Create `{Action}Query`, `{Action}QueryHandler`, `{Feature}Dto`
-- [ ] **API Controller**: Extend `BaseApiController`; use `FromResult()` for all responses; add request DTOs as `internal sealed record` in controller file; apply `[Authorize]` if needed
-- [ ] **Tests**: Write `.feature` file with scenarios for success + error cases; implement `[Binding]` step class with NSubstitute mocks and FluentAssertions
-- [ ] **Frontend**: Add `types/`, `api/`, `hooks/` (useQuery + useMutation), `pages/` under `features/{feature}/`; add route to `AppRouter.tsx` with `lazy()`; add nav link if needed
+- [ ] **Domain:** Entidade extends `Entity`/`AggregateRoot`; construtor `private` vazio para EF Core (`base(0)`); factory `static Result<T> Create(...)`; método `UpdateDetails(...)` retornando `Result`; método `Deactivate()`; interface de repositório em `Domain/Repositories/`
+- [ ] **EF Config:** `IEntityTypeConfiguration<T>` em Infrastructure; Value Objects via `HasConversion`; `UsePropertyAccessMode(Field)` para coleções privadas; `OnDelete(Cascade)` apenas para coleções próprias; `Restrict` para FKs entre aggregates; adicionar `DbSet<T>` ao `AppDbContext`
+- [ ] **Repository:** Implementação concreta em `Infrastructure/Persistence/Repositories/`; **sem** `AsNoTracking()` em métodos usados para update
+- [ ] **DI:** Registrar `services.AddScoped<IXxxRepository, XxxRepository>()` em `DependencyInjection.cs`
+- [ ] **Commands:** `XxxCommand.cs` com `using SyllabusTrack.Application.Abstractions.Messaging;`; handler com repositório e `unitOfWork.CommitAsync()`; validator com FluentValidation
+- [ ] **Queries:** `XxxQuery.cs`, `XxxQueryHandler.cs` com `AsNoTracking`; `XxxResponse.cs` (sealed record)
+- [ ] **Controller:** Extends `ApiController`; `[Authorize]`; usa `HandleResult()`; request body separado do command quando há parâmetro de rota; named route no `HttpGet("{id:int}")` para o `CreatedAtRoute`
+- [ ] **SQL:** Tabela com `IsActive BIT DEFAULT 1`, `CreatedAt`, `UpdatedAt`; FK com índice explícito; soft delete (nunca `DELETE` físico)
+- [ ] **Testes:** Feature file `.feature` + `[Binding]` com NSubstitute + FluentAssertions; cenários: sucesso + erro de domínio + validação

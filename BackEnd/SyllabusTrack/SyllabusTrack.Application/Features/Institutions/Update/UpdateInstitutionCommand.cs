@@ -1,4 +1,6 @@
-﻿namespace SyllabusTrack.Application.Features.Institutions.Update
+﻿using SyllabusTrack.Application.Abstractions.Messaging;
+
+namespace SyllabusTrack.Application.Features.Institutions.Update
 {
     public sealed record UpdateInstitutionCommand(
         int InstitutionId,
