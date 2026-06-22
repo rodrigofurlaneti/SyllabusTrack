@@ -52,7 +52,7 @@ export function CurriculumPage() {
     )
   }
 
-  const progress = enrollments?.[0]?.progress ?? []
+  const progress = enrollments?.[0]?.progresses ?? []
   const groups = groupBySemester(progress, program.totalSemesters)
 
   const completedCount = progress.filter((p) => p.completionStatus === 'Completed').length

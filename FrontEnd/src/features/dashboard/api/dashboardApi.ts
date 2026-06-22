@@ -1,14 +1,5 @@
 import { apiClient } from '../../../core/api/client'
 
-export interface EnrollmentResponse {
-  enrollmentId: number
-  studentId: number
-  programId: number
-  enrollmentDate: string
-  enrollmentStatus: string
-  progress: ProgressResponse[]
-}
-
 export interface ProgressResponse {
   progressId: number
   subjectId: number
@@ -16,6 +7,14 @@ export interface ProgressResponse {
   completionStatus: 'Pending' | 'InProgress' | 'Completed' | 'Failed'
   semesterTaken: string | null
   finalGrade: number | null
+}
+
+export interface EnrollmentResponse {
+  enrollmentId: number
+  studentId: number
+  programId: number
+  enrollmentStatus: string
+  progresses: ProgressResponse[]
 }
 
 export const dashboardApi = {

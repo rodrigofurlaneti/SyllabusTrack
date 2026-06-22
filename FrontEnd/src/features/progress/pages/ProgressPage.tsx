@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useDashboard } from '../../dashboard/hooks/useDashboard'
-import { useUpdateProgress } from '../hooks/useProgress'
+import { useUpsertProgress } from '../hooks/useProgress'
 import { FullPageSpinner, Spinner } from '../../../shared/components/Spinner'
 import { StatusBadge } from '../../../shared/components/StatusBadge'
 import type { Status } from '../../../shared/components/StatusBadge'
@@ -30,7 +30,7 @@ interface EditModalProps {
 }
 
 function EditModal({ subject, enrollmentId, onClose }: EditModalProps) {
-  const { mutate, isPending, isSuccess, error } = useUpdateProgress(enrollmentId)
+  const { mutate, isPending, isSuccess, error } = useUpsertProgress(enrollmentId)
 
   const {
     register,
@@ -50,7 +50,7 @@ function EditModal({ subject, enrollmentId, onClose }: EditModalProps) {
 
   const onSubmit = (data: FormData) => {
     mutate({
-      progressId: subject.progressId,
+      subjectId: subject.subjectId,
       completionStatus: data.completionStatus as CompletionStatus,
       semesterTaken: data.semesterTaken || null,
       finalGrade: data.finalGrade,
@@ -162,7 +162,7 @@ export function ProgressPage() {
   if (isLoading) return <FullPageSpinner />
 
   const enrollment = enrollments?.[0]
-  const progress = enrollment?.progress ?? []
+  const progress = enrollment?.progresses ?? []
 
   const filtered =
     filter === 'All' ? progress : progress.filter((p) => p.completionStatus === filter)

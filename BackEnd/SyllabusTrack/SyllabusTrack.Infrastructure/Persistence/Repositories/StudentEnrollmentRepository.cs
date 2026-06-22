@@ -18,6 +18,7 @@ internal sealed class StudentEnrollmentRepository(AppDbContext dbContext) : IStu
         => await dbContext.StudentEnrollments
             .AsNoTracking()
             .Include(e => e.Progresses)
+                .ThenInclude(p => p.Subject)
             .Where(e => e.StudentId == studentId && e.IsActive)
             .ToListAsync(cancellationToken);
 }

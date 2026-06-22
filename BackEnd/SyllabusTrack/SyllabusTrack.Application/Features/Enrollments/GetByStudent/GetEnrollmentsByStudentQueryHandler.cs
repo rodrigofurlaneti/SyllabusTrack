@@ -19,9 +19,10 @@ namespace SyllabusTrack.Application.Features.Enrollments.GetByStudent
                 e.Progresses.Select(p => new ProgressResponse(
                     p.Id,
                     p.SubjectId,
+                    p.Subject?.SubjectName ?? string.Empty,
                     p.CompletionStatus,
                     p.SemesterTaken,
-                    p.FinalGrade?.Value // Extrai o decimal do ValueObject
+                    p.FinalGrade?.Value
                 )).ToList().AsReadOnly()
             )).ToList().AsReadOnly();
 

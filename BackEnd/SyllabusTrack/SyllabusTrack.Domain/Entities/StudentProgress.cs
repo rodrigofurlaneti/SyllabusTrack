@@ -13,6 +13,7 @@ namespace SyllabusTrack.Domain.Entities
     {
         public int EnrollmentId { get; private set; }
         public int SubjectId { get; private set; }
+        public AcademicSubject? Subject { get; private set; } // Navigation property para EF Core Include
         public string CompletionStatus { get; private set; }
         public string SemesterTaken { get; private set; }
         public Grade? FinalGrade { get; private set; } // Uso do Value Object Grade
@@ -28,6 +29,15 @@ namespace SyllabusTrack.Domain.Entities
             SemesterTaken = semesterTaken;
             FinalGrade = finalGrade;
             IsActive = true;
+        }
+
+        internal void Update(string status, string? semesterTaken, Grade? finalGrade)
+        {
+            CompletionStatus = status;
+            if (semesterTaken is not null)
+                SemesterTaken = semesterTaken;
+            if (finalGrade is not null)
+                FinalGrade = finalGrade;
         }
 
         internal static Result<StudentProgress> Create(int enrollmentId, int subjectId, string status, string semesterTaken, Grade? finalGrade)

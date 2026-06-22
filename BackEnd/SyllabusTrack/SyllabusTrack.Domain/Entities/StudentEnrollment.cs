@@ -40,11 +40,21 @@ namespace SyllabusTrack.Domain.Entities
             return Result.Success(new StudentEnrollment(studentId, programId, "Active"));
         }
 
-        // A regra de negócio para adicionar uma matéria cursada fica AQUI dentro
+        // Upsert: atualiza o progresso se já existe, cria se não existe
         public Result AddProgress(int subjectId, string status, string semesterTaken, Grade? finalGrade)
         {
-            if (_progresses.Any(p => p.SubjectId == subjectId && p.CompletionStatus == "Completed"))
-                return Result.Failure(new Error("Enrollment.SubjectAlreadyCompleted", "This subject is already completed."));
+            var existing = _progresses.FirstOrDefault(p => p.SubjectId == subjectId && p.IsActive);
+
+            if (existing is not null)
+            {
+                // Valida o status antes de atualizar
+                var validStatuses = new[] { "Pending", "InProgress", "Completed", "Failed" };
+                if (!validStatuses.Contains(status))
+                    return Result.Failure(new Error("Progress.InvalidStatus", "Invalid completion status."));
+
+                existing.Update(status, semesterTaken, finalGrade);
+                return Result.Success();
+            }
 
             var progressResult = StudentProgress.Create(Id, subjectId, status, semesterTaken, finalGrade);
 

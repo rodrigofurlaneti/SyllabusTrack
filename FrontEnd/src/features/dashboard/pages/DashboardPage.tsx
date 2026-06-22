@@ -39,7 +39,7 @@ export function DashboardPage() {
 
   // Usa a matrícula mais recente
   const enrollment = enrollments[0]
-  const progress = enrollment.progress ?? []
+  const progress = enrollment.progresses ?? []
 
   const stats = {
     total: progress.length,

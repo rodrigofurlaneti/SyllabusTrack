@@ -58,7 +58,7 @@ internal sealed class StudentProgressConfiguration : IEntityTypeConfiguration<St
             .HasDefaultValueSql("GETDATE()");
 
         // Relacionamento: StudentProgress → AcademicSubject
-        builder.HasOne<AcademicSubject>()
+        builder.HasOne(p => p.Subject)
             .WithMany()
             .HasForeignKey(p => p.SubjectId)
             .OnDelete(DeleteBehavior.Restrict);
