@@ -1,8 +1,8 @@
-# SyllabusTrack — Arquitetura e Padrões
+# SyllabusTrack — Padrões de Arquitetura e Desenvolvimento
 
 ## Propósito
 
-Você é um arquiteto fullstack especialista neste projeto. Quando ativado, aplique consistentemente todos os padrões de arquitetura, modelagem e nomenclatura documentados aqui — ao criar features, revisar código ou fazer scaffold.
+Você é um arquiteto fullstack especialista neste projeto. Quando ativado, aplique consistentemente todos os padrões documentados aqui ao criar features, revisar código ou fazer scaffold. **Nunca altere features já homologadas** — apenas adicione novas seguindo os mesmos padrões.
 
 ---
 
@@ -15,12 +15,13 @@ Você é um arquiteto fullstack especialista neste projeto. Quando ativado, apli
 | ORM | EF Core 9 (SQL Server) |
 | Mensageria | MediatR 12 |
 | Validação | FluentValidation 11 |
-| Auth | JWT Bearer (BCrypt + System.IdentityModel.Tokens.Jwt) |
-| Testes | Reqnroll (Gherkin/BDD) + xUnit + NSubstitute + FluentAssertions |
-| Frontend | React 19, TypeScript, Vite |
-| Estado | Zustand (auth) + TanStack React Query (server state) |
+| Auth | JWT Bearer + BCrypt (workFactor 12) |
+| Testes | Reqnroll (BDD/Gherkin) + xUnit + NSubstitute + FluentAssertions |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS |
+| Estado servidor | TanStack React Query 5 |
+| Estado cliente | Zustand 5 (auth) |
 | Formulários | React Hook Form + Zod |
-| HTTP Client | Axios (singleton com interceptors) |
+| HTTP Client | Axios (singleton com interceptors JWT) |
 | Roteamento | React Router DOM 7 |
 
 ---
@@ -30,36 +31,48 @@ Você é um arquiteto fullstack especialista neste projeto. Quando ativado, apli
 ```
 SyllabusTrack/
 ├── Sql/
-│   ├── MasterScript.sql      # DDL: tabelas, índices, stored procedures
-│   └── SeedData.sql          # Dados reais do curso de Medicina (UnirG)
-├── FrontEnd/                 # React + TypeScript SPA
+│   ├── MasterScript.sql              # DDL completo
+│   ├── SeedData.sql                  # UnirG Medicina + 19 cursos FAM EAD
+│   ├── Seed_FAM_Psicologia_Farmacia.sql
+│   ├── Seed_RodrigoMadeira.sql
+│   └── Cleanup_All.sql
+├── FrontEnd/
+│   └── src/
+│       ├── core/
+│       │   ├── api/client.ts         # Axios singleton
+│       │   ├── auth/authStore.ts     # Zustand
+│       │   └── router/AppRouter.tsx
+│       ├── features/                 # Feature-folder pattern
+│       │   ├── auth/
+│       │   ├── dashboard/
+│       │   ├── curriculum/
+│       │   ├── progress/
+│       │   ├── recommendations/
+│       │   ├── comparison/
+│       │   ├── planning/
+│       │   ├── multipleplanning/
+│       │   └── multipletargetsplanning/
+│       └── shared/components/        # NavBar, Layout
 └── BackEnd/
     └── SyllabusTrack/
-        ├── SyllabusTrack.Domain          # Entidades, VOs, interfaces, eventos
-        ├── SyllabusTrack.Application     # CQRS: commands/queries, validators, DTOs
-        ├── SyllabusTrack.Infrastructure  # EF Core, repositórios, JWT, BCrypt
-        └── SyllabusTrack.API             # Controllers, middleware, DI
+        ├── SyllabusTrack.Domain
+        ├── SyllabusTrack.Application
+        ├── SyllabusTrack.Infrastructure
+        └── SyllabusTrack.API
 ```
 
-**Fluxo de dependência (Clean Architecture):**
+**Regra de dependência (Clean Architecture):**
 ```
 API → Application → Domain
-              ↑
-       Infrastructure (implementa interfaces do Domain)
+Infrastructure implementa interfaces do Domain
 ```
-
-- Domain: **zero** dependências externas.
-- Application: depende apenas do Domain.
-- Infrastructure: implementa interfaces do Domain; nunca referenciada pela Application.
-- API: referencia Application e Infrastructure apenas para DI.
+Domain: **zero** dependências externas.
 
 ---
 
-## 2. Domínio — Entidades e Banco de Dados
+## 2. Banco de Dados
 
-### 2.1 Modelo de Dados
-
-O banco **SyllabusTrackDb** (SQL Server, PKs `INT IDENTITY`) tem as seguintes tabelas:
+### 2.1 Esquema
 
 ```
 EducationalInstitution   (InstitutionId PK)
@@ -67,213 +80,210 @@ EducationalInstitution   (InstitutionId PK)
         └── AcademicTerm (TermId PK, ProgramId FK)
               └── CourseModule    (ModuleId PK, TermId FK)
                     └── AcademicSubject     (SubjectId PK, ModuleId FK)
-                          └── SubjectPrerequisite (TargetSubjectId FK, RequiredSubjectId FK)
+                          └── SubjectPrerequisite
 
 StudentAccount           (StudentId PK)
   └── StudentEnrollment  (EnrollmentId PK, StudentId FK, ProgramId FK)
         └── StudentProgress (ProgressId PK, EnrollmentId FK, SubjectId FK)
 ```
 
-**Campos comuns em todas as tabelas:** `IsActive BIT DEFAULT 1`, `CreatedAt DATETIME`, `UpdatedAt DATETIME`.
+**Campos universais:** `IsActive BIT DEFAULT 1`, `CreatedAt DATETIME`, `UpdatedAt DATETIME`.
 
 **Soft delete:** nunca `DELETE` físico — sempre `UPDATE IsActive = 0`.
 
-### 2.2 Entidades C# Mapeadas pelo EF Core
+### 2.2 Entidades C# × Banco
 
-| Entidade C# | Tabela SQL | Tipo |
-|---|---|---|
-| `EducationalInstitution` | `EducationalInstitution` | `AggregateRoot` |
-| `DegreeProgram` | `DegreeProgram` | `AggregateRoot` |
-| `AcademicSubject` | `AcademicSubject` | `Entity` |
-| `StudentAccount` | `StudentAccount` | `AggregateRoot` |
-| `StudentEnrollment` | `StudentEnrollment` | `AggregateRoot` |
-| `StudentProgress` | `StudentProgress` | `Entity` |
+| Entidade C# | Tipo |
+|---|---|
+| `EducationalInstitution` | `AggregateRoot` |
+| `DegreeProgram` | `AggregateRoot` |
+| `AcademicSubject` | `Entity` |
+| `StudentAccount` | `AggregateRoot` |
+| `StudentEnrollment` | `AggregateRoot` |
+| `StudentProgress` | `Entity` |
 
-> **Atenção:** `AcademicTerm` e `CourseModule` existem no banco mas **não têm entidade C#** — são gerenciados via SQL direto ou seeds. `AcademicSubject` referencia `ModuleId` como `int` simples (sem navegação EF).
+> **`AcademicTerm` e `CourseModule` NÃO têm entidade C#.** São gerenciados via SQL/seed. `AcademicSubject` referencia `ModuleId` como `int` simples, sem navegação EF.
 
-### 2.3 Classes Base (Domain/Primitives)
+### 2.3 CompletionStatus válidos
+
+`'Pending'` | `'InProgress'` | `'Completed'` | `'Failed'`
+
+### 2.4 EnrollmentStatus válido
+
+`'Active'`
+
+---
+
+## 3. Domain Layer
+
+### 3.1 Classes Base
 
 ```csharp
-// Entity — PK int
+// Entity
 public abstract class Entity : IEquatable<Entity>
 {
     public int Id { get; protected set; }
     protected Entity(int id) => Id = id;
-    // Equals/GetHashCode por Id
 }
 
-// AggregateRoot — estende Entity, suporta domain events
+// AggregateRoot
 public abstract class AggregateRoot : Entity
 {
     private readonly List<IDomainEvent> _domainEvents = [];
-    public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
     protected void RaiseDomainEvent(IDomainEvent e) => _domainEvents.Add(e);
-    public void ClearDomainEvents() => _domainEvents.Clear();
 }
 
-// ValueObject — igualdade por valor
+// ValueObject
 public abstract class ValueObject : IEquatable<ValueObject>
 {
     public abstract IEnumerable<object> GetAtomicValues();
-    // Equals/GetHashCode via GetAtomicValues()
 }
 ```
 
-### 2.4 Value Objects existentes
-
-| Value Object | Regras |
-|---|---|
-| `Email` | não vazio, contém `@`, máx 255 chars |
-| `Grade` | `decimal` entre 0.00 e 10.00 |
-| `PhoneNumber` | existe no domínio mas ainda não aplicado nas entidades |
-
-Todos retornam `Result<T>` via `Create()`.
-
-### 2.5 Padrão de Entidade
+### 3.2 Padrão de Entidade
 
 ```csharp
 public sealed class EducationalInstitution : AggregateRoot
 {
     public string InstitutionName { get; private set; }
-    public string InstitutionAcronym { get; private set; }
-    public string CampusLocation { get; private set; }
     public bool IsActive { get; private set; }
 
-    private EducationalInstitution() : base(0) { } // EF Core
+    private EducationalInstitution() : base(0) { }  // EF Core — OBRIGATÓRIO
 
-    private EducationalInstitution(string name, string acronym, string location) : base(0)
+    private EducationalInstitution(string name, ...) : base(0)
     {
         InstitutionName = name;
-        InstitutionAcronym = acronym;
-        CampusLocation = location;
         IsActive = true;
     }
 
-    public static Result<EducationalInstitution> Create(string name, string acronym, string location)
+    public static Result<EducationalInstitution> Create(string name, ...)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return Result.Failure<EducationalInstitution>(new Error("Institution.EmptyName", "Institution name is required."));
-        return Result.Success(new EducationalInstitution(name, acronym, location));
+            return Result.Failure<EducationalInstitution>(
+                new Error("Institution.EmptyName", "Institution name is required."));
+        return Result.Success(new EducationalInstitution(name, ...));
     }
 
-    public Result UpdateDetails(string name, string acronym, string location) { ... }
+    public Result UpdateDetails(string name, ...) { ... }
     public void Deactivate() => IsActive = false;
 }
 ```
 
-**Regras:**
-- Construtor `private` vazio para EF Core (`base(0)`).
+**Regras fixas:**
+- Construtor `private` vazio para EF Core com `base(0)`.
 - Construtor `private` com parâmetros.
-- Factory `static Result<T> Create(...)` — valida e retorna `Result`.
-- Método `UpdateDetails(...)` retorna `Result` para atualizações.
+- Factory `static Result<T> Create(...)`.
+- Método `UpdateDetails(...)` retorna `Result`.
 - Método `Deactivate()` para soft delete.
-- Entidades filhas de aggregates usam `internal static Create(...)`.
 
-### 2.6 Result Pattern
+### 3.3 Result Pattern
 
 ```csharp
-// Void
+// Sucesso
 Result.Success()
-Result.Failure(new Error("Code", "Message"))
-
-// Com valor
 Result.Success<T>(value)
+
+// Falha
+Result.Failure(new Error("Code", "Message"))
 Result.Failure<T>(new Error("Code", "Message"))
 
-// Uso em handlers
+// Verificação
 if (result.IsFailure)
     return Result.Failure<int>(result.Error);
 ```
 
-**Nunca lance exceções para erros de negócio esperados dentro de handlers.**
+**Nunca lance exceções para erros de negócio dentro de handlers.**
+
+### 3.4 Value Objects existentes
+
+| VO | Regras |
+|---|---|
+| `Email` | não vazio, contém `@`, máx 255 chars |
+| `Grade` | `decimal` entre 0.00 e 10.00 |
+| `PhoneNumber` | validação básica |
 
 ---
 
-## 3. Application Layer — CQRS
+## 4. Application Layer — CQRS
 
-### 3.1 Interfaces de Messaging
+### 4.1 Interfaces de Messaging
 
 ```csharp
-// Command sem retorno de dados
 public interface ICommand : IRequest<Result> { }
-
-// Command que retorna um valor (ex: ID criado)
 public interface ICommand<TResponse> : IRequest<Result<TResponse>> { }
-
-// Handler de command sem retorno
 public interface ICommandHandler<TCommand> : IRequestHandler<TCommand, Result>
     where TCommand : ICommand { }
-
-// Handler de command com retorno
 public interface ICommandHandler<TCommand, TResponse> : IRequestHandler<TCommand, Result<TResponse>>
     where TCommand : ICommand<TResponse> { }
-
-// Query (sempre retorna valor)
 public interface IQuery<TResponse> : IRequest<Result<TResponse>> { }
 public interface IQueryHandler<TQuery, TResponse> : IRequestHandler<TQuery, Result<TResponse>>
     where TQuery : IQuery<TResponse> { }
 ```
 
-### 3.2 Estrutura por Feature
+> **SEMPRE** adicionar `using SyllabusTrack.Application.Abstractions.Messaging;` em todo arquivo de Command/Query. Sem ele, `ICommand` e `IQuery` não são resolvidos.
+
+### 4.2 Estrutura por Feature (CRUD padrão)
 
 ```
-Application/Features/
-  {Aggregate}/
-    Create/
-      CreateXxxCommand.cs          ← sealed record : ICommand<int>
-      CreateXxxCommandHandler.cs   ← sealed class : ICommandHandler<Cmd, int>
-      CreateXxxCommandValidator.cs ← sealed class : AbstractValidator<Cmd>
-    Update/
-      UpdateXxxCommand.cs          ← sealed record : ICommand  (sem retorno de dados)
-      UpdateXxxCommandHandler.cs
-      UpdateXxxCommandValidator.cs
-    GetAll/
-      GetAllXxxQuery.cs            ← sealed record : IQuery<IReadOnlyCollection<XxxResponse>>
-      GetAllXxxQueryHandler.cs
-    GetById/
-      GetXxxByIdQuery.cs           ← sealed record : IQuery<XxxResponse>
-      GetXxxByIdQueryHandler.cs
-    XxxResponse.cs                 ← sealed record (DTO de leitura)
+Application/Features/{Aggregate}/
+  Create/
+    CreateXxxCommand.cs          ← sealed record : ICommand<int>
+    CreateXxxCommandHandler.cs   ← sealed class : ICommandHandler<Cmd, int>
+    CreateXxxCommandValidator.cs ← sealed class : AbstractValidator<Cmd>
+  Update/
+    UpdateXxxCommand.cs          ← sealed record : ICommand
+    UpdateXxxCommandHandler.cs
+    UpdateXxxCommandValidator.cs
+  GetAll/
+    GetAllXxxQuery.cs            ← sealed record : IQuery<IReadOnlyCollection<XxxResponse>>
+    GetAllXxxQueryHandler.cs
+  GetById/
+    GetXxxByIdQuery.cs           ← sealed record : IQuery<XxxResponse>
+    GetXxxByIdQueryHandler.cs
+  XxxResponse.cs                 ← sealed record (DTO de leitura)
 ```
 
-### 3.3 Padrão de Command
+### 4.3 Features de Análise (sem entidade EF)
+
+Para `CourseComparison`, `AcademicPlanning`, `MultiplePlanning`, `MultipleTargetsPlanning`:
+
+```
+Application/Features/{Feature}/
+  {Feature}Request.cs            ← sealed record (DTO de entrada — body do POST)
+  {Feature}Response.cs           ← sealed record (DTO de saída)
+  Get{Feature}Query.cs           ← sealed record : IQuery<{Feature}Response>
+  Get{Feature}QueryHandler.cs    ← sealed class : IQueryHandler<Query, Response>
+  I{Feature}Repository.cs        ← interface com método GetXxxAsync(...)
+```
 
 ```csharp
-// OBRIGATÓRIO: sempre adicionar o using da camada de messaging
-using SyllabusTrack.Application.Abstractions.Messaging;
-
-namespace SyllabusTrack.Application.Features.Institutions.Update
+// Handler de feature de análise — padrão
+internal sealed class GetMultiplePlanQueryHandler(
+    IMultiplePlanningRepository repository)
+    : IQueryHandler<GetMultiplePlanQuery, MultiplePlanningResponse>
 {
-    public sealed record UpdateInstitutionCommand(
-        int InstitutionId,
-        string Name,
-        string Acronym,
-        string Location) : ICommand;  // ICommand sem tipo = sem retorno de dados
-}
-```
-
-### 3.4 Padrão de Handler (Command com retorno)
-
-```csharp
-internal sealed class CreateInstitutionCommandHandler(
-    IEducationalInstitutionRepository repository,
-    IUnitOfWork unitOfWork) : ICommandHandler<CreateInstitutionCommand, int>
-{
-    public async Task<Result<int>> Handle(CreateInstitutionCommand request, CancellationToken cancellationToken)
+    public async Task<Result<MultiplePlanningResponse>> Handle(
+        GetMultiplePlanQuery request, CancellationToken ct)
     {
-        var result = EducationalInstitution.Create(request.Name, request.Acronym, request.Location);
-        if (result.IsFailure)
-            return Result.Failure<int>(result.Error);
+        // 1. Validações de negócio
+        if (request.SourceProgramIds.Count == 0)
+            return Result.Failure<MultiplePlanningResponse>(
+                new Error("MultiplePlanning.NoSource", "Informe ao menos um curso de referência."));
 
-        await repository.AddAsync(result.Value, cancellationToken);
-        await unitOfWork.CommitAsync(cancellationToken);
+        // 2. Delegar para o repositório
+        var plan = await repository.GetMultiplePlanAsync(
+            request.SourceProgramIds, request.TargetProgramId, ct);
 
-        return Result.Success(result.Value.Id);
+        if (plan is null)
+            return Result.Failure<MultiplePlanningResponse>(
+                new Error("MultiplePlanning.NotFound", "Curso não encontrado."));
+
+        return Result.Success(plan);
     }
 }
 ```
 
-### 3.5 FluentValidation
+### 4.4 FluentValidation
 
 ```csharp
 public sealed class CreateInstitutionCommandValidator : AbstractValidator<CreateInstitutionCommand>
@@ -282,71 +292,28 @@ public sealed class CreateInstitutionCommandValidator : AbstractValidator<Create
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
         RuleFor(x => x.Acronym).MaximumLength(50);
-        RuleFor(x => x.Location).MaximumLength(255);
     }
 }
 ```
 
-**Regra:** validações de formato/tamanho → FluentValidation. Regras de negócio complexas → entity factory.
+**Regra:** validações de formato/tamanho → FluentValidation. Regras de negócio complexas → entity factory ou handler.
 
 ---
 
-## 4. Infrastructure Layer
+## 5. Infrastructure Layer
 
-### 4.1 Repositórios — Regra de Tracking
+### 5.1 EF Core — Regra de Tracking
 
 ```
-❌ AsNoTracking()  →  NUNCA use em métodos chamados para UPDATE
-✅ AsNoTracking()  →  use em consultas/leituras puras (melhor performance)
+❌ AsNoTracking()  →  NUNCA em métodos chamados para UPDATE
+✅ AsNoTracking()  →  SEMPRE em consultas puras (leitura)
 ```
 
-| Método | AsNoTracking? |
-|---|---|
-| `GetByIdAsync` (chamado em UpdateHandler) | ❌ NÃO |
-| `GetByIdWithSyllabusAsync` (chamado em UpdateHandler) | ❌ NÃO |
-| `GetAllActiveAsync` | ✅ SIM |
-| `GetByStudentIdAsync` | ✅ SIM |
-| `GetByModuleIdAsync` | ✅ SIM |
-
-### 4.2 Interfaces de Repositório (definidas no Domain)
+### 5.2 EF Core — Configurações
 
 ```csharp
-// IEducationalInstitutionRepository
-Task AddAsync(EducationalInstitution institution, CancellationToken ct = default);
-Task<EducationalInstitution?> GetByIdAsync(int id, CancellationToken ct = default);
-Task<IEnumerable<EducationalInstitution>> GetAllActiveAsync(CancellationToken ct = default);
-
-// IDegreeProgramRepository
-Task AddAsync(DegreeProgram program, CancellationToken ct = default);
-Task<DegreeProgram?> GetByIdWithSyllabusAsync(int id, CancellationToken ct = default);
-Task<IEnumerable<DegreeProgram>> GetAllActiveAsync(CancellationToken ct = default);
-
-// IAcademicSubjectRepository
-Task AddAsync(AcademicSubject subject, CancellationToken ct = default);
-Task<AcademicSubject?> GetByIdAsync(int id, CancellationToken ct = default);
-Task<IEnumerable<AcademicSubject>> GetByModuleIdAsync(int moduleId, CancellationToken ct = default);
-
-// IStudentAccountRepository
-Task AddAsync(StudentAccount student, CancellationToken ct = default);
-Task<StudentAccount?> GetByIdAsync(int id, CancellationToken ct = default);
-Task<StudentAccount?> GetByEmailOrUsernameAsync(string identifier, CancellationToken ct = default);
-Task<bool> IsEmailUniqueAsync(Email email, CancellationToken ct = default);
-Task<bool> IsUsernameUniqueAsync(string username, CancellationToken ct = default);
-
-// IStudentEnrollmentRepository
-Task AddAsync(StudentEnrollment enrollment, CancellationToken ct = default);
-Task<StudentEnrollment?> GetByIdWithProgressAsync(int id, CancellationToken ct = default);
-Task<IEnumerable<StudentEnrollment>> GetByStudentIdAsync(int studentId, CancellationToken ct = default);
-```
-
-### 4.3 EF Core — Configurações
-
-Todas via `IEntityTypeConfiguration<T>`, auto-descobertas com `ApplyConfigurationsFromAssembly`.
-
-```csharp
-// Value Object simples (HasConversion)
+// Value Object simples
 builder.Property(s => s.EmailAddress)
-    .HasColumnName("EmailAddress")
     .HasConversion(
         email => email.Value,
         value => Email.Create(value).Value);
@@ -357,32 +324,101 @@ builder.Property(p => p.FinalGrade)
         grade => grade != null ? (decimal?)grade.Value : null,
         value => value.HasValue ? Grade.Create(value.Value).Value : null);
 
-// Coleção privada com backing field
+// Coleção privada
 builder.HasMany(e => e.Progresses)
-    .WithOne()
-    .HasForeignKey(p => p.EnrollmentId)
+    .WithOne().HasForeignKey(p => p.EnrollmentId)
     .OnDelete(DeleteBehavior.Cascade);
 builder.Navigation(e => e.Progresses)
     .UsePropertyAccessMode(PropertyAccessMode.Field);
 
-// FK entre aggregates: sempre Restrict (não Cascade)
+// FK entre aggregates → sempre Restrict
 builder.HasOne<EducationalInstitution>()
-    .WithMany()
-    .HasForeignKey(p => p.InstitutionId)
+    .WithMany().HasForeignKey(p => p.InstitutionId)
     .OnDelete(DeleteBehavior.Restrict);
 ```
 
-### 4.4 Segurança
+### 5.3 SqlQuery\<T\> — Repositórios de Análise
 
-- **Senha:** `BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12)` / `BCrypt.Net.BCrypt.Verify(password, hash)`
-- **A procedure `usp_AuthenticateStudent` NÃO valida senha** — apenas retorna o usuário pelo identificador. A verificação do hash BCrypt é feita em `IPasswordHasher.Verify()` no C#.
-- **JWT:** assina com `HmacSha256`, configurável via `appsettings.json` (Issuer, Audience, SecretKey, ExpirationMinutes).
+Repositórios de planejamento/comparação usam `dbContext.Database.SqlQuery<TRow>($"...")` com strings interpoladas (EF Core parametriza automaticamente — seguro contra SQL injection).
+
+**CRÍTICO — EF Core 9:** `SqlQuery<T>` envolve o SQL em uma subquery. SQL Server **rejeita `ORDER BY`** dentro de subqueries sem `TOP`/`OFFSET`. **Nunca use `ORDER BY` dentro de `SqlQuery<T>`**. Ordene sempre em C# após `ToListAsync()`.
+
+```csharp
+// ✅ CORRETO
+private sealed record SubjectRow(string SubjectName, int Hours, int TermNumber);
+
+var rows = await dbContext.Database
+    .SqlQuery<SubjectRow>($"""
+        SELECT s.SubjectName, s.TotalSubjectHours AS Hours, t.TermNumber
+        FROM   AcademicTerm t
+        JOIN   CourseModule m ON m.TermId = t.TermId
+        JOIN   AcademicSubject s ON s.ModuleId = m.ModuleId
+        WHERE  t.ProgramId = {programId}
+          AND  s.IsActive = 1
+          AND  s.TotalSubjectHours > 0
+        """)
+    .ToListAsync(ct);
+
+// Ordenação em C# — nunca no SQL
+var ordered = rows.GroupBy(r => r.TermNumber).OrderBy(g => g.Key);
+
+// ❌ ERRADO — causa HTTP 500
+// ORDER BY t.TermNumber  ← dentro do SqlQuery
+```
+
+### 5.4 Padrão HashSet para UNION de Disciplinas (Planejamento Múltiplo)
+
+```csharp
+// NUNCA construa IN (1,2,3) via interpolação de lista — use uma query por ID
+var unionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+foreach (var srcId in sourceProgramIds)
+{
+    var names = await dbContext.Database
+        .SqlQuery<SubjectNameRow>($"""
+            SELECT DISTINCT LOWER(LTRIM(RTRIM(s.SubjectName))) AS SubjectName
+            FROM   AcademicTerm t
+            JOIN   CourseModule m  ON m.TermId   = t.TermId
+            JOIN   AcademicSubject s ON s.ModuleId = m.ModuleId
+            WHERE  t.ProgramId = {srcId}
+              AND  s.IsActive = 1
+              AND  s.TotalSubjectHours > 0
+            """)
+        .ToListAsync(ct);
+
+    foreach (var n in names)
+        unionNames.Add(n.SubjectName);
+}
+
+// Match O(1)
+bool isMatched = unionNames.Contains(subjectName.Trim().ToLowerInvariant());
+```
+
+### 5.5 Segurança
+
+- `BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12)` / `Verify(password, hash)`
+- `usp_AuthenticateStudent` retorna o usuário pelo identificador. **Nunca** compara senha no SQL — verificação do hash BCrypt é feita em C# via `IPasswordHasher.Verify()`.
+
+### 5.6 DependencyInjection.cs — Registro de Repositórios
+
+```csharp
+// CRUD repositories
+services.AddScoped<IEducationalInstitutionRepository, EducationalInstitutionRepository>();
+services.AddScoped<IDegreeProgramRepository, DegreeProgramRepository>();
+// ...
+
+// Analysis repositories (sem entidade EF)
+services.AddScoped<ICourseComparisonRepository, CourseComparisonRepository>();
+services.AddScoped<IAcademicPlanningRepository, AcademicPlanningRepository>();
+services.AddScoped<IMultiplePlanningRepository, MultiplePlanningRepository>();
+services.AddScoped<IMultipleTargetsPlanningRepository, MultipleTargetsPlanningRepository>();
+```
 
 ---
 
-## 5. API Layer
+## 6. API Layer
 
-### 5.1 ApiController Base
+### 6.1 ApiController Base
 
 ```csharp
 [ApiController]
@@ -398,125 +434,249 @@ public abstract class ApiController : ControllerBase
 }
 ```
 
-### 5.2 Padrão de Controller
+### 6.2 Padrão de Controller
 
 ```csharp
 [Authorize]
-public sealed class InstitutionsController(ISender sender) : ApiController
+public sealed class ProgramsController(ISender sender) : ApiController
 {
+    // GET simples → HandleResult
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
-        => HandleResult(await sender.Send(new GetAllInstitutionsQuery(), ct));
+        => HandleResult(await sender.Send(new GetAllProgramsQuery(), ct));
 
-    [HttpGet("{id:int}", Name = "GetInstitutionById")]
+    // GET com parâmetro → NotFound explícito
+    [HttpGet("{id:int}", Name = "GetProgramById")]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
-        var result = await sender.Send(new GetInstitutionByIdQuery(id), ct);
+        var result = await sender.Send(new GetProgramByIdQuery(id), ct);
         if (result.IsFailure)
-            return NotFound(new ProblemDetails { Title = "Not Found", Detail = result.Error.Message });
+            return NotFound(new ProblemDetails { Detail = result.Error.Message,
+                Extensions = { ["code"] = result.Error.Code } });
         return Ok(result.Value);
     }
 
+    // POST → CreatedAtRoute
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateInstitutionCommand command, CancellationToken ct)
+    public async Task<IActionResult> Create([FromBody] CreateProgramCommand command, CancellationToken ct)
     {
         var result = await sender.Send(command, ct);
-        if (result.IsFailure)
-            return BadRequest(...);
-        return CreatedAtRoute("GetInstitutionById", new { id = result.Value }, new { institutionId = result.Value });
+        if (result.IsFailure) return BadRequest(...);
+        return CreatedAtRoute("GetProgramById", new { id = result.Value }, new { programId = result.Value });
     }
 
-    [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateInstitutionRequest request, CancellationToken ct)
-        => HandleResult(await sender.Send(new UpdateInstitutionCommand(id, request.Name, request.Acronym, request.Location), ct));
+    // POST de análise → Ok ou 400/404
+    [HttpPost("planning/multiple")]
+    public async Task<IActionResult> GetMultiplePlanning(
+        [FromBody] MultiplePlanningRequest request, CancellationToken ct)
+    {
+        var result = await sender.Send(
+            new GetMultiplePlanQuery(request.SourceProgramIds, request.TargetProgramId), ct);
+
+        if (result.IsFailure)
+        {
+            if (result.Error.Code.Contains("NotFound"))
+                return NotFound(new ProblemDetails { Detail = result.Error.Message,
+                    Extensions = { ["code"] = result.Error.Code } });
+            return BadRequest(new ProblemDetails { Detail = result.Error.Message,
+                Extensions = { ["code"] = result.Error.Code } });
+        }
+        return Ok(result.Value);
+    }
 }
 
 // Request body separado do Command quando há parâmetro de rota
-public sealed record UpdateInstitutionRequest(string Name, string Acronym, string Location);
+public sealed record UpdateProgramRequest(string ProgramName, string CurriculumVersion, int TotalSemesters);
 ```
 
-**Auth:** `AuthController` **não** tem `[Authorize]` (endpoints públicos: `POST /register` e `POST /login`). Todos os demais controllers têm `[Authorize]`.
-
-**Named routes:** todo `HttpGet("{id:int}")` deve ter `Name = "GetXxxById"` para o `CreatedAtRoute` do POST funcionar. Nunca usar `CreatedAtRoute` com nome de rota que não existe.
+**Regras:**
+- `AuthController` **não** tem `[Authorize]`. Todos os demais têm.
+- Todo `HttpGet("{id:int}")` deve ter `Name = "GetXxxById"` para `CreatedAtRoute` funcionar.
 
 ---
 
-## 6. Banco de Dados — Padrões SQL
+## 7. Frontend — Padrões
 
-### 6.1 Stored Procedures
+### 7.1 Feature Folder
 
-Todas as procedures seguem o padrão `@Action CHAR(1)` com `'I'`, `'U'`, `'D'`, `'S'`, **exceto** `usp_AuthenticateStudent` (propósito único).
+Cada feature tem estrutura consistente:
 
-```sql
--- CERTO: a procedure retorna o usuário, o C# faz a verificação do hash BCrypt
-CREATE PROCEDURE usp_AuthenticateStudent @LoginIdentifier VARCHAR(255)
-AS BEGIN
-    SELECT StudentId, ..., AccountPassword
-    FROM StudentAccount
-    WHERE (LoginUsername = @LoginIdentifier OR EmailAddress = @LoginIdentifier) AND IsActive = 1;
-END
-
--- ERRADO: nunca comparar senha em plain text no SQL
--- AND AccountPassword = @AccountPassword  ← NUNCA (senha é hash BCrypt)
+```
+features/{featureName}/
+  api/{featureName}Api.ts        ← Função que chama apiClient
+  hooks/use{FeatureName}.ts      ← useQuery ou useMutation
+  pages/{FeatureName}Page.tsx    ← Página principal
+  types/{featureName}.types.ts   ← Tipos TypeScript (opcional)
 ```
 
-### 6.2 Índices
+### 7.2 useQuery vs useMutation
 
-Todas as colunas FK têm índice explícito criado após a criação das tabelas. Índice composto em `StudentProgress(EnrollmentId, SubjectId)` com `INCLUDE (CompletionStatus, FinalGrade)`.
+```typescript
+// ✅ useQuery — para GET (disparo automático, cache gerenciado)
+export function usePlanning(sourceId: number, targetId: number) {
+  return useQuery({
+    queryKey: ['planning', sourceId, targetId],
+    queryFn: () => planningApi.getPlan(sourceId, targetId),
+    enabled: sourceId > 0 && targetId > 0,
+  })
+}
 
-### 6.3 Dados de Seed
+// ✅ useMutation — para POST de análise (disparo manual, sem cache automático)
+// Planejamento múltiplo usa POST (body complexo) mas retorna dados — usar useMutation
+export function useMultiplePlanning() {
+  return useMutation({
+    mutationFn: ({ sourceProgramIds, targetProgramId }: {
+      sourceProgramIds: number[]
+      targetProgramId: number
+    }) => multiplePlanningApi.getMultiplePlan(sourceProgramIds, targetProgramId),
+  })
+}
 
-`SeedData.sql` contém o currículo real de Medicina da UnirG (Matriz Curricular Nº 5) — 12 períodos, ~50 módulos, ~90 disciplinas + estágios + optativas. Não altere sem confirmação com o usuário.
-
----
-
-## 7. Testes — BDD com Reqnroll
-
-```gherkin
-Feature: Cadastro de Instituição
-
-  Scenario: Cadastrar instituição com sucesso
-    When cadastro a instituição "Fundação UnirG" com sigla "UnirG" e localização "Gurupi"
-    Then o cadastro deve ter sucesso e retornar um ID positivo
-
-  Scenario: Rejeitar nome vazio
-    When cadastro a instituição "" com sigla "X" e localização "Y"
-    Then o cadastro deve falhar com o erro "Institution.EmptyName"
+// Uso do useMutation na página
+const { mutate, data, isPending, isError, reset } = useMultiplePlanning()
+mutate({ sourceProgramIds: [1, 2], targetProgramId: 3 })
 ```
 
-```csharp
-[Binding]
-public sealed class InstitutionSteps
-{
-    private readonly IEducationalInstitutionRepository _repo = Substitute.For<IEducationalInstitutionRepository>();
-    private readonly IUnitOfWork _uow = Substitute.For<IUnitOfWork>();
-    private Result<int> _result = default!;
+### 7.3 Axios Client
 
-    [When("cadastro a instituição {string} com sigla {string} e localização {string}")]
-    public async Task WhenCadastro(string name, string acronym, string location)
-    {
-        var handler = new CreateInstitutionCommandHandler(_repo, _uow);
-        _result = await handler.Handle(new CreateInstitutionCommand(name, acronym, location), default);
+```typescript
+// core/api/client.ts
+export const apiClient = axios.create({ baseURL: import.meta.env.VITE_API_URL })
+
+// Interceptor JWT — adiciona Authorization header automaticamente
+apiClient.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().token
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+```
+
+### 7.4 Tipos Compartilhados Entre Features
+
+Tipos de uma feature podem ser importados por outra sem copiar:
+
+```typescript
+// planning/api/planningApi.ts define os tipos base
+export interface SemesterPlanItem { ... }
+export interface PlannedSubjectItem { ... }
+
+// multipleplanning/api/multiplePlanningApi.ts reutiliza
+import type { SemesterPlanItem } from '../../planning/api/planningApi'
+
+// multipleTargetsPlanning reutiliza o SourceProgramSummary do multipleplanning
+import type { SourceProgramSummary } from '../../multipleplanning/api/multiplePlanningApi'
+```
+
+### 7.5 Rotas e NavBar
+
+```typescript
+// AppRouter.tsx — adicionar rota dentro do ProtectedRoute > Layout
+<Route path="/minha-feature" element={<MinhaFeaturePage />} />
+
+// NavBar.tsx — adicionar item no array navItems
+{ to: '/minha-feature', label: 'Minha Feature' }
+```
+
+### 7.6 Plano Consolidado (deduplicação frontend)
+
+Quando múltiplos resultados chegam da API e precisam de deduplicação, a consolidação é feita em memória no frontend — sem round-trip extra ao backend:
+
+```typescript
+// Padrão usado em MultipleTargetsPlanningPage
+const seen = new Map<string, ConsolidatedSubject>()
+
+for (const target of targetResults) {
+  for (const sem of target.semesterPlans) {
+    for (const s of sem.subjects) {
+      if (s.isMatched) continue
+      const key = s.subjectName.trim().toLowerCase()
+      if (!seen.has(key)) {
+        seen.set(key, { subjectName: s.subjectName, hours: s.hours, targetNames: [] })
+      }
+      const entry = seen.get(key)!
+      if (!entry.targetNames.includes(target.targetProgramName))
+        entry.targetNames.push(target.targetProgramName)
     }
-
-    [Then("o cadastro deve ter sucesso e retornar um ID positivo")]
-    public void ThenSucesso() => _result.IsSuccess.Should().BeTrue();
-
-    [Then("o cadastro deve falhar com o erro {string}")]
-    public void ThenFalha(string code) => _result.Error.Code.Should().Be(code);
+  }
 }
 ```
 
 ---
 
-## 8. Checklist — Adicionando uma Nova Feature
+## 8. SQL — Scripts e Padrões
 
-- [ ] **Domain:** Entidade extends `Entity`/`AggregateRoot`; construtor `private` vazio para EF Core (`base(0)`); factory `static Result<T> Create(...)`; método `UpdateDetails(...)` retornando `Result`; método `Deactivate()`; interface de repositório em `Domain/Repositories/`
-- [ ] **EF Config:** `IEntityTypeConfiguration<T>` em Infrastructure; Value Objects via `HasConversion`; `UsePropertyAccessMode(Field)` para coleções privadas; `OnDelete(Cascade)` apenas para coleções próprias; `Restrict` para FKs entre aggregates; adicionar `DbSet<T>` ao `AppDbContext`
-- [ ] **Repository:** Implementação concreta em `Infrastructure/Persistence/Repositories/`; **sem** `AsNoTracking()` em métodos usados para update
-- [ ] **DI:** Registrar `services.AddScoped<IXxxRepository, XxxRepository>()` em `DependencyInjection.cs`
-- [ ] **Commands:** `XxxCommand.cs` com `using SyllabusTrack.Application.Abstractions.Messaging;`; handler com repositório e `unitOfWork.CommitAsync()`; validator com FluentValidation
-- [ ] **Queries:** `XxxQuery.cs`, `XxxQueryHandler.cs` com `AsNoTracking`; `XxxResponse.cs` (sealed record)
-- [ ] **Controller:** Extends `ApiController`; `[Authorize]`; usa `HandleResult()`; request body separado do command quando há parâmetro de rota; named route no `HttpGet("{id:int}")` para o `CreatedAtRoute`
-- [ ] **SQL:** Tabela com `IsActive BIT DEFAULT 1`, `CreatedAt`, `UpdatedAt`; FK com índice explícito; soft delete (nunca `DELETE` físico)
-- [ ] **Testes:** Feature file `.feature` + `[Binding]` com NSubstitute + FluentAssertions; cenários: sucesso + erro de domínio + validação
+### 8.1 Stored Procedures
+
+```sql
+-- Padrão: @Action CHAR(1) com 'I', 'U', 'D', 'S'
+CREATE PROCEDURE usp_ManageEducationalInstitution
+    @Action CHAR(1), @InstitutionId INT = NULL, ...
+
+-- usp_AuthenticateStudent: retorna usuário SEM verificar senha
+-- A verificação BCrypt é feita no C# (IPasswordHasher.Verify)
+```
+
+### 8.2 Seeds — Padrão de Script
+
+```sql
+-- Sempre usar DECLARE @Id INT e SCOPE_IDENTITY() para capturar IDs
+DECLARE @InstId INT, @ProgId INT, @T1 INT
+
+-- Filtrar sempre por ProgramId em subqueries de TermId e ModuleId
+SELECT @T1 = TermId FROM AcademicTerm
+WHERE ProgramId = @ProgId AND TermNumber = 1   -- ← SEMPRE com ProgramId
+
+SELECT ModuleId FROM CourseModule
+WHERE TermId = @T1 AND ModuleCode = 'ADS-1A'   -- ← SEMPRE com TermId
+
+-- Separar batches com GO entre blocos que reutilizam variáveis com mesmo nome
+GO
+```
+
+### 8.3 Cleanup_All.sql — Ordem de FK
+
+```sql
+-- Ordem obrigatória: mais dependente primeiro
+1. SubjectPrerequisite
+2. StudentProgress
+3. StudentEnrollment
+4. AcademicSubject
+5. CourseModule (com TermId) → CourseModule órfãos (TermId NULL)
+6. AcademicTerm
+7. DegreeProgram
+8. EducationalInstitution
+```
+
+---
+
+## 9. Checklist — Nova Feature de CRUD
+
+- [ ] **Domain:** entidade extends `Entity`/`AggregateRoot`; construtor `private` vazio `base(0)`; factory `static Result<T> Create(...)`; `UpdateDetails(...)` retorna `Result`; `Deactivate()`; interface em `Domain/Repositories/`
+- [ ] **EF Config:** `IEntityTypeConfiguration<T>`; Value Objects via `HasConversion`; `UsePropertyAccessMode(Field)` para coleções privadas; `OnDelete(Cascade)` apenas para coleções próprias; `Restrict` entre aggregates; `DbSet<T>` no `AppDbContext`
+- [ ] **Repository:** em `Infrastructure/Persistence/Repositories/`; sem `AsNoTracking()` nos métodos de update
+- [ ] **DI:** `services.AddScoped<IXxxRepository, XxxRepository>()` em `DependencyInjection.cs`
+- [ ] **Commands:** `using SyllabusTrack.Application.Abstractions.Messaging;`; handler + `unitOfWork.CommitAsync()`; validator
+- [ ] **Queries:** `AsNoTracking()`; `XxxResponse.cs` como `sealed record`
+- [ ] **Controller:** extends `ApiController`; `[Authorize]`; `HandleResult()`; request body separado do command quando há parâmetro de rota; named route no `HttpGet("{id:int}")`
+- [ ] **SQL:** tabela com `IsActive`, `CreatedAt`, `UpdatedAt`; FK com índice explícito; soft delete
+- [ ] **Testes:** Feature file + binding NSubstitute + FluentAssertions
+
+## 10. Checklist — Nova Feature de Análise (sem entidade EF)
+
+- [ ] **Application:** `{Feature}Request.cs`, `{Feature}Response.cs`, `Get{Feature}Query.cs`, `Get{Feature}QueryHandler.cs`, `I{Feature}Repository.cs`
+- [ ] **Infrastructure:** `{Feature}Repository.cs` com `SqlQuery<TRow>` — **sem `ORDER BY` no SQL** (EF Core 9); ordenação em C#
+- [ ] **DI:** registrar `IXxxRepository` em `DependencyInjection.cs`
+- [ ] **API:** novo endpoint no `ProgramsController` (ou controller adequado); POST para queries com body complexo; 400 para erros de validação, 404 para not found
+- [ ] **Frontend:** `{feature}Api.ts` → `{feature}Api.{método}()`; `use{Feature}.ts` → `useMutation` (POST) ou `useQuery` (GET); `{Feature}Page.tsx`; rota em `AppRouter.tsx`; item em `NavBar.tsx`
+
+---
+
+## 11. Restrições Absolutas
+
+1. **Não alterar o esquema SQL** (`MasterScript.sql`) — sem confirmação explícita do usuário.
+2. **Não alterar features já homologadas** — apenas adicionar novas.
+3. **Nunca `ORDER BY` dentro de `SqlQuery<T>`** — EF Core 9 quebra com SQL Server.
+4. **Nunca construir `IN (id1,id2,id3)` por concatenação de string** — usar uma query por ID com interpolação segura.
+5. **Nunca comparar senha no SQL** — hash BCrypt verificado sempre em C# via `IPasswordHasher.Verify()`.
+6. **Nunca `DELETE` físico** — sempre soft delete (`IsActive = 0`).
+7. **Nunca `AsNoTracking()` em repositório usado para update**.

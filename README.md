@@ -1,19 +1,20 @@
 # SyllabusTrack
 
-**SyllabusTrack** é uma plataforma fullstack para acompanhamento de grade curricular e progresso acadêmico de estudantes de medicina, desenvolvida com as melhores práticas de arquitetura de software.
+**SyllabusTrack** é uma plataforma fullstack para acompanhamento de grade curricular, progresso acadêmico e planejamento de aproveitamento entre cursos, desenvolvida com Clean Architecture, CQRS e DDD.
 
 ---
 
 ## Índice
 
 - [Visão Geral](#visão-geral)
+- [Funcionalidades](#funcionalidades)
 - [Stack Tecnológica](#stack-tecnológica)
 - [Arquitetura](#arquitetura)
 - [Modelagem de Dados](#modelagem-de-dados)
 - [Estrutura de Pastas](#estrutura-de-pastas)
 - [Padrões e Princípios](#padrões-e-princípios)
-- [Camadas da API](#camadas-da-api)
-- [Testes](#testes)
+- [API — Endpoints](#api--endpoints)
+- [Dados de Seed](#dados-de-seed)
 - [Como Executar](#como-executar)
 - [Decisões Arquiteturais](#decisões-arquiteturais)
 
@@ -21,13 +22,28 @@
 
 ## Visão Geral
 
-O **SyllabusTrack** é uma plataforma que permite:
+O **SyllabusTrack** permite que estudantes acompanhem sua trajetória acadêmica e planejem o aproveitamento de disciplinas entre diferentes cursos. O sistema calcula automaticamente quais matérias de um curso já concluído cobrem as exigências de um novo curso, estimando o tempo até a formatura.
 
-- **Gestão de Instituições e Cursos**: cadastro de instituições de ensino e seus respectivos cursos com versionamento de grade curricular.
-- **Grade Curricular Completa**: estrutura hierárquica de Curso → Período Acadêmico → Módulo → Disciplina, com carga horária detalhada (teórica, prática, estágio etc.) e pré-requisitos entre disciplinas.
-- **Matrícula de Estudantes**: vinculação de estudantes a um curso com controle de status de matrícula.
-- **Acompanhamento de Progresso**: registro do status de cada disciplina cursada (Pendente, Em Andamento, Concluída, Reprovada) com nota final e semestre cursado.
-- **Autenticação JWT**: cadastro e login de estudantes com tokens seguros e senhas armazenadas com hash BCrypt.
+---
+
+## Funcionalidades
+
+### Gestão Acadêmica
+- **Instituições e Cursos**: cadastro de instituições de ensino e cursos com versionamento de grade curricular.
+- **Grade Curricular**: estrutura hierárquica Curso → Período → Módulo → Disciplina, com carga horária detalhada (teórica, prática, estágio, extensão) e pré-requisitos.
+- **Matrícula**: vinculação de estudantes a cursos com controle de status.
+- **Progresso**: registro do status de cada disciplina (`Pending`, `InProgress`, `Completed`, `Failed`) com nota e semestre cursado.
+
+### Análise e Planejamento
+- **Dashboard**: resumo do progresso geral do estudante, disciplinas concluídas, em andamento e pendentes.
+- **Próximos Cursos**: recomendações de cursos compatíveis com o perfil do estudante.
+- **Comparar Cursos**: comparação entre dois cursos mostrando o percentual de aproveitamento de disciplinas e carga horária.
+- **Planejamento Acadêmico**: dado 1 curso concluído e 1 curso-alvo, calcula o plano semestre a semestre com estimativa de formatura.
+- **Planejamento Múltiplo** (N → 1): combina a UNIÃO de disciplinas de N cursos concluídos contra 1 curso-alvo, eliminando duplicatas automaticamente.
+- **Planejamento Multi-Alvo** (N → N): combina a UNIÃO de N cursos concluídos contra N cursos-alvo simultaneamente, com plano consolidado de matérias únicas a cursar (deduplicação entre alvos) e destaque para matérias compartilhadas que valem para 2+ cursos.
+
+### Autenticação
+- Cadastro e login com JWT Bearer + BCrypt (workFactor 12).
 
 ---
 
@@ -57,47 +73,37 @@ O **SyllabusTrack** é uma plataforma que permite:
 | **NSubstitute** | Mocks e stubs |
 | **Reqnroll** | BDD / Gherkin |
 
-### Frontend (planejado)
+### Frontend
 
 | Tecnologia | Versão | Uso |
 |---|---|---|
 | **React** | 19 | Framework de UI |
 | **TypeScript** | — | Tipagem estática |
 | **Vite** | — | Build tool + HMR |
-| **React Router** | 7 | Roteamento SPA |
-| **TanStack Query** | 5 | Server state e cache |
+| **React Router DOM** | 7 | Roteamento SPA |
+| **TanStack Query** | 5 | Server state, cache e mutations |
 | **Zustand** | 5 | Client state (auth) |
 | **React Hook Form** | 7 | Formulários |
 | **Zod** | — | Validação de schemas |
-| **Axios** | — | HTTP client + interceptors JWT |
-
-### Banco de Dados (SQL)
-
-| Arquivo | Conteúdo |
-|---|---|
-| `Sql/MasterScript.sql` | DDL: tabelas, índices e stored procedures |
-| `Sql/SeedData.sql` | Grade curricular real de Medicina — UnirG (Matriz Nº 5, 12 períodos, ~90 disciplinas) |
+| **Axios** | — | HTTP client com interceptors JWT |
+| **Tailwind CSS** | — | Estilização utilitária |
 
 ---
 
 ## Arquitetura
 
-O projeto segue **Clean Architecture** com separação estrita de responsabilidades em 4 camadas. As dependências fluem de fora para dentro — **nunca** o contrário.
+Clean Architecture com 4 camadas. Dependências fluem de fora para dentro — **nunca** o contrário.
 
 ```
 ┌─────────────────────────────────────────────┐
-│                    API                      │  ← Apresentação (Controllers, Middleware)
+│                    API                      │  ← Controllers, Middleware
 ├─────────────────────────────────────────────┤
-│              Infrastructure                 │  ← Dados (EF Core, JWT, BCrypt)
+│              Infrastructure                 │  ← EF Core, JWT, BCrypt
 ├─────────────────────────────────────────────┤
-│               Application                  │  ← Casos de uso (CQRS, Validação, Pipeline)
+│               Application                  │  ← CQRS, Validação, Pipeline
 ├─────────────────────────────────────────────┤
-│                 Domain                      │  ← Núcleo do negócio (Entidades, Regras)
+│                 Domain                      │  ← Entidades, Value Objects, Regras
 └─────────────────────────────────────────────┘
-
-Fluxo de dependência:
-  API → Infrastructure → Application → Domain
-  Domain não conhece nenhuma outra camada.
 ```
 
 ### Fluxo de uma Requisição
@@ -110,14 +116,14 @@ Controller (API)
     │  new Command / Query
     ▼
 MediatR Pipeline
-    ├── LoggingBehavior    (log entrada/saída)
+    ├── LoggingBehavior
     └── ValidationBehavior (FluentValidation)
          │
          ▼
     CommandHandler / QueryHandler (Application)
-         │  IRepository / IUnitOfWork
+         │
          ▼
-    Repository (Infrastructure / EF Core)
+    Repository (Infrastructure / EF Core ou SqlQuery<T>)
          │
          ▼
     SQL Server (SyllabusTrackDb)
@@ -131,77 +137,42 @@ MediatR Pipeline
 
 ```
 EducationalInstitution  (InstitutionId PK)
-│   InstitutionName     VARCHAR(255)
-│   InstitutionAcronym  VARCHAR(50)
-│   CampusLocation      VARCHAR(255)
-│   IsActive            BIT
 │
 └── DegreeProgram       (ProgramId PK, InstitutionId FK)
-    │   ProgramName         VARCHAR(255)   ← Ex: "Medicina"
-    │   CurriculumVersion   VARCHAR(100)   ← Ex: "Matriz Curricular Nº 5"
-    │   TotalSemesters      INT            ← Ex: 12
-    │   IsActive            BIT
+    │   TotalSemesters INT
     │
     └── AcademicTerm    (TermId PK, ProgramId FK)
-        │   TermNumber       INT           ← 1 a 12
-        │   TermDescription  VARCHAR(100)
+        │   TermNumber INT
         │
         └── CourseModule (ModuleId PK, TermId FK)
-            │   ModuleCode   VARCHAR(50)   ← Ex: "63013161"
-            │   ModuleName   VARCHAR(255)
+            │   ModuleCode VARCHAR(50)
             │
             └── AcademicSubject (SubjectId PK, ModuleId FK)
-                    SubjectCode       VARCHAR(50)
-                    SubjectName       VARCHAR(255)
-                    SubjectCredits    INT
-                    TheoreticalHours  INT
-                    PracticalHours    INT
-                    StudyGroupHours   INT
-                    ExtensionHours    INT
-                    InternshipHours   INT
-                    TotalSubjectHours INT
-                    IsOptional        BIT
+                    SubjectCode, SubjectName
+                    TheoreticalHours, PracticalHours
+                    StudyGroupHours, ExtensionHours
+                    InternshipHours, TotalSubjectHours
 
 SubjectPrerequisite (TargetSubjectId FK, RequiredSubjectId FK)
 ```
 
-### Estudantes e Matrícula
+### Estudantes
 
 ```
 StudentAccount      (StudentId PK)
-│   StudentFullName  VARCHAR(255)
-│   LoginUsername    VARCHAR(50)   UNIQUE
-│   EmailAddress     VARCHAR(255)  UNIQUE   ← Value Object Email
-│   CellPhoneNumber  VARCHAR(20)
-│   AccountPassword  VARCHAR(255)           ← Hash BCrypt — nunca plain text
-│   IsActive         BIT
 │
 └── StudentEnrollment (EnrollmentId PK, StudentId FK, ProgramId FK)
-    │   EnrollmentDate    DATE
-    │   EnrollmentStatus  VARCHAR(50)   ← "Active"
-    │   IsActive          BIT
+    │   EnrollmentStatus VARCHAR(50)  ← "Active"
     │
     └── StudentProgress (ProgressId PK, EnrollmentId FK, SubjectId FK)
-            CompletionStatus  VARCHAR(50)    ← "Pending" | "InProgress" | "Completed" | "Failed"
-            SemesterTaken     VARCHAR(20)    ← Ex: "2024.1"
-            FinalGrade        DECIMAL(5,2)   ← Value Object Grade (0.00 a 10.00)
-            IsActive          BIT
+            CompletionStatus  ← "Pending" | "InProgress" | "Completed" | "Failed"
+            SemesterTaken     ← Ex: "2024.1"
+            FinalGrade        ← DECIMAL(5,2), Value Object Grade (0.00–10.00)
 ```
 
-> **Soft delete:** nenhum `DELETE` físico. Todo registro é desativado com `IsActive = 0`.
+> **Soft delete:** toda remoção é `IsActive = 0`. Campos `CreatedAt` e `UpdatedAt` em todas as tabelas.
 
-> **Campos de auditoria:** todas as tabelas têm `CreatedAt DATETIME` e `UpdatedAt DATETIME`.
-
-> **AcademicTerm e CourseModule** existem no banco mas não têm entidade C# — são gerenciados via SQL/seed. `AcademicSubject` referencia `ModuleId` como `int` simples.
-
-### Stored Procedures
-
-| Procedure | Ações |
-|---|---|
-| `usp_ManageEducationalInstitution` | I / U / D / S |
-| `usp_ManageStudentAccount` | I / U / D / S |
-| `usp_AuthenticateStudent` | Busca por email ou username — **sem comparação de senha** (hash BCrypt verificado no C#) |
-| `usp_ManageStudentProgress` | I / U / D / S |
+> **`AcademicTerm` e `CourseModule`** existem no banco mas **não têm entidade C#** — gerenciados via SQL/seed.
 
 ---
 
@@ -211,112 +182,107 @@ StudentAccount      (StudentId PK)
 SyllabusTrack/
 │
 ├── Sql/
-│   ├── MasterScript.sql          ← DDL: tabelas, índices, stored procedures
-│   └── SeedData.sql              ← Currículo real de Medicina UnirG (12 períodos)
+│   ├── MasterScript.sql                   ← DDL: tabelas, índices, stored procedures
+│   ├── SeedData.sql                       ← UnirG: Medicina (12 sem) + 19 cursos FAM EAD
+│   ├── Seed_FAM_Psicologia_Farmacia.sql   ← FAM: Psicologia (10 sem) + Farmácia (8 sem)
+│   ├── Seed_RodrigoMadeira.sql            ← Histórico acadêmico do estudante Rodrigo Madeira
+│   └── Cleanup_All.sql                    ← Remove todos os dados seed (ordem FK correta)
 │
-├── FrontEnd/                     ← React + TypeScript SPA (em desenvolvimento)
+├── FrontEnd/
+│   └── src/
+│       ├── core/
+│       │   ├── api/client.ts              ← Axios singleton com interceptor JWT
+│       │   ├── auth/authStore.ts          ← Zustand: token + user
+│       │   └── router/AppRouter.tsx       ← React Router: rotas protegidas
+│       ├── features/
+│       │   ├── auth/                      ← Login, Register (páginas + hooks + API)
+│       │   ├── dashboard/                 ← Resumo de progresso
+│       │   ├── curriculum/               ← Grade curricular por curso
+│       │   ├── progress/                 ← Progresso por disciplina
+│       │   ├── recommendations/          ← Próximos cursos recomendados
+│       │   ├── comparison/               ← Comparar dois cursos
+│       │   ├── planning/                 ← Planejamento 1 → 1
+│       │   ├── multipleplanning/         ← Planejamento N fontes → 1 alvo
+│       │   └── multipletargetsplanning/  ← Planejamento N fontes → N alvos
+│       └── shared/
+│           └── components/
+│               ├── NavBar.tsx
+│               └── Layout.tsx
 │
-├── BackEnd/
-│   └── SyllabusTrack/
-│       ├── SyllabusTrack.sln
-│       │
-│       ├── SyllabusTrack.Domain/
-│       │   ├── Entities/
-│       │   │   ├── AcademicSubject.cs          ← Entity
-│       │   │   ├── DegreeProgram.cs            ← AggregateRoot
-│       │   │   ├── EducationalInstitution.cs   ← AggregateRoot
-│       │   │   ├── StudentAccount.cs           ← AggregateRoot
-│       │   │   ├── StudentEnrollment.cs        ← AggregateRoot (possui StudentProgress)
-│       │   │   └── StudentProgress.cs          ← Entity (filho de StudentEnrollment)
-│       │   ├── Primitives/
-│       │   │   ├── AggregateRoot.cs
-│       │   │   ├── Entity.cs
-│       │   │   ├── IDomainEvent.cs
-│       │   │   └── ValueObject.cs
-│       │   ├── Repositories/
-│       │   │   ├── IAcademicSubjectRepository.cs
-│       │   │   ├── IDegreeProgramRepository.cs
-│       │   │   ├── IEducationalInstitutionRepository.cs
-│       │   │   ├── IStudentAccountRepository.cs
-│       │   │   ├── IStudentEnrollmentRepository.cs
-│       │   │   └── IUnitOfWork.cs
-│       │   ├── Shared/
-│       │   │   ├── Error.cs
-│       │   │   └── Result.cs
-│       │   └── ValueObjects/
-│       │       ├── Email.cs          ← validação embutida
-│       │       ├── Grade.cs          ← decimal 0.00 a 10.00
-│       │       └── PhoneNumber.cs
-│       │
-│       ├── SyllabusTrack.Application/
-│       │   ├── Abstractions/
-│       │   │   ├── Authentication/
-│       │   │   │   ├── IJwtProvider.cs
-│       │   │   │   └── IPasswordHasher.cs
-│       │   │   ├── Behaviors/
-│       │   │   │   ├── LoggingBehavior.cs
-│       │   │   │   └── ValidationBehavior.cs
-│       │   │   └── Messaging/
-│       │   │       ├── ICommand.cs
-│       │   │       └── IQuery.cs
-│       │   ├── Features/
-│       │   │   ├── AcademicSubjects/
-│       │   │   │   └── Create/   ← Command + Handler + Validator
-│       │   │   ├── Auth/
-│       │   │   │   ├── Login/    ← Query + Handler
-│       │   │   │   └── Register/ ← Command + Handler + Validator
-│       │   │   ├── DegreePrograms/
-│       │   │   │   ├── Create/ GetAll/ GetById/ Update/
-│       │   │   │   └── ProgramResponse.cs
-│       │   │   ├── Enrollments/
-│       │   │   │   ├── AddProgress/ Create/ GetByStudent/
-│       │   │   │   ├── EnrollmentResponse.cs
-│       │   │   │   └── ProgressResponse.cs
-│       │   │   └── Institutions/
-│       │   │       ├── Create/ GetAll/ GetById/ Update/
-│       │   │       └── InstitutionResponse.cs
-│       │   └── DependencyInjection.cs
-│       │
-│       ├── SyllabusTrack.Infrastructure/
-│       │   ├── DependencyInjection/
-│       │   │   └── DependencyInjection.cs
-│       │   ├── Persistence/
-│       │   │   ├── AppDbContext.cs
-│       │   │   ├── Configurations/
-│       │   │   │   ├── AcademicSubjectConfiguration.cs
-│       │   │   │   ├── DegreeProgramConfiguration.cs
-│       │   │   │   ├── EducationalInstitutionConfiguration.cs
-│       │   │   │   ├── StudentAccountConfiguration.cs
-│       │   │   │   ├── StudentEnrollmentConfiguration.cs
-│       │   │   │   └── StudentProgressConfiguration.cs
-│       │   │   ├── Repositories/
-│       │   │   │   ├── AcademicSubjectRepository.cs
-│       │   │   │   ├── DegreeProgramRepository.cs
-│       │   │   │   ├── EducationalInstitutionRepository.cs
-│       │   │   │   ├── StudentAccountRepository.cs
-│       │   │   │   └── StudentEnrollmentRepository.cs
-│       │   │   └── UnitOfWork.cs
-│       │   └── Security/
-│       │       ├── JwtOptions.cs
-│       │       ├── JwtProvider.cs
-│       │       └── PasswordHasher.cs
-│       │
-│       └── SyllabusTrack.API/
-│           ├── Controllers/
-│           │   ├── ApiController.cs           ← HandleResult<T> helper base
-│           │   ├── AuthController.cs          ← POST register / login (público)
-│           │   ├── EnrollmentsController.cs   ← CRUD matrículas e progresso
-│           │   ├── InstitutionsController.cs  ← CRUD instituições
-│           │   ├── ProgramsController.cs      ← CRUD cursos
-│           │   └── SubjectsController.cs      ← POST disciplinas
-│           ├── Extensions/
-│           │   └── SwaggerExtensions.cs       ← Swagger + JWT Bearer
-│           ├── Middleware/
-│           │   └── GlobalExceptionHandlingMiddleware.cs
-│           ├── appsettings.json
-│           └── Program.cs
-│
-└── SKILL.md                      ← Padrões arquiteturais para uso com IA
+└── BackEnd/
+    └── SyllabusTrack/
+        ├── SyllabusTrack.Domain/
+        │   ├── Entities/
+        │   │   ├── AcademicSubject.cs
+        │   │   ├── DegreeProgram.cs          ← AggregateRoot
+        │   │   ├── EducationalInstitution.cs ← AggregateRoot
+        │   │   ├── StudentAccount.cs         ← AggregateRoot
+        │   │   ├── StudentEnrollment.cs      ← AggregateRoot (possui StudentProgress)
+        │   │   └── StudentProgress.cs        ← Entity
+        │   ├── Primitives/
+        │   │   ├── AggregateRoot.cs
+        │   │   ├── Entity.cs
+        │   │   ├── IDomainEvent.cs
+        │   │   └── ValueObject.cs
+        │   ├── Repositories/                 ← Interfaces de repositório
+        │   ├── Shared/
+        │   │   ├── Error.cs
+        │   │   └── Result.cs
+        │   └── ValueObjects/
+        │       ├── Email.cs
+        │       ├── Grade.cs
+        │       └── PhoneNumber.cs
+        │
+        ├── SyllabusTrack.Application/
+        │   ├── Abstractions/
+        │   │   ├── Authentication/           ← IJwtProvider, IPasswordHasher
+        │   │   ├── Behaviors/                ← LoggingBehavior, ValidationBehavior
+        │   │   └── Messaging/                ← ICommand, IQuery, ICommandHandler, IQueryHandler
+        │   └── Features/
+        │       ├── Auth/                     ← Login, Register
+        │       ├── Institutions/             ← Create, GetAll, GetById, Update
+        │       ├── DegreePrograms/           ← Create, GetAll, GetById, Update
+        │       ├── AcademicSubjects/         ← Create
+        │       ├── Enrollments/              ← Create, AddProgress, GetByStudent
+        │       ├── Recommendations/          ← GetRecommendations
+        │       ├── CourseComparison/         ← CompareProgramsQuery (sem entidade EF)
+        │       ├── AcademicPlanning/         ← GetAcademicPlanQuery (sem entidade EF)
+        │       ├── MultiplePlanning/         ← GetMultiplePlanQuery — N fontes → 1 alvo
+        │       └── MultipleTargetsPlanning/  ← GetMultipleTargetsPlanQuery — N fontes → N alvos
+        │
+        ├── SyllabusTrack.Infrastructure/
+        │   ├── DependencyInjection/
+        │   ├── Persistence/
+        │   │   ├── AppDbContext.cs
+        │   │   ├── Configurations/           ← IEntityTypeConfiguration<T> por entidade
+        │   │   ├── Repositories/
+        │   │   │   ├── EducationalInstitutionRepository.cs
+        │   │   │   ├── DegreeProgramRepository.cs
+        │   │   │   ├── AcademicSubjectRepository.cs
+        │   │   │   ├── StudentAccountRepository.cs
+        │   │   │   ├── StudentEnrollmentRepository.cs
+        │   │   │   ├── ProgramRecommendationRepository.cs
+        │   │   │   ├── CourseComparisonRepository.cs
+        │   │   │   ├── AcademicPlanningRepository.cs
+        │   │   │   ├── MultiplePlanningRepository.cs
+        │   │   │   └── MultipleTargetsPlanningRepository.cs
+        │   │   └── UnitOfWork.cs
+        │   └── Security/
+        │       ├── JwtOptions.cs
+        │       ├── JwtProvider.cs
+        │       └── PasswordHasher.cs
+        │
+        └── SyllabusTrack.API/
+            ├── Controllers/
+            │   ├── ApiController.cs           ← HandleResult<T> helper base
+            │   ├── AuthController.cs          ← POST register / login (público)
+            │   ├── EnrollmentsController.cs
+            │   ├── InstitutionsController.cs
+            │   ├── ProgramsController.cs      ← CRUD + compare + planning endpoints
+            │   └── SubjectsController.cs
+            ├── Extensions/SwaggerExtensions.cs
+            ├── Middleware/GlobalExceptionHandlingMiddleware.cs
+            └── Program.cs
 ```
 
 ---
@@ -325,174 +291,159 @@ SyllabusTrack/
 
 ### Domain-Driven Design (DDD)
 
-- **Aggregate Roots**: `EducationalInstitution`, `DegreeProgram`, `StudentAccount`, `StudentEnrollment` — únicos pontos de entrada para mutação de estado.
-- **Entities**: `AcademicSubject`, `StudentProgress` — têm identidade mas pertencem a um aggregate.
-- **Value Objects**: `Email`, `Grade`, `PhoneNumber` — imutáveis, igualdade por valor, validação embutida via `Create()`.
-- **Rich Domain Model**: setters `private` em todas as propriedades; estado alterado apenas pelos próprios métodos da entidade.
-- **Inversão de Dependência**: interfaces de repositório definidas no Domain, implementadas na Infrastructure.
+- **Aggregate Roots**: `EducationalInstitution`, `DegreeProgram`, `StudentAccount`, `StudentEnrollment`.
+- **Entities**: `AcademicSubject`, `StudentProgress`.
+- **Value Objects**: `Email`, `Grade`, `PhoneNumber` — imutáveis, validação via `Create()`, retornam `Result<T>`.
+- **Rich Domain Model**: setters `private`; estado alterado apenas pelos métodos da entidade.
+- **Inversão de Dependência**: interfaces no Domain, implementações na Infrastructure.
 
 ### CQRS com MediatR
 
 ```
-Command → altera estado   → retorna Result (void) ou Result<int> (ID criado)
-Query   → lê dados        → retorna Result<TResponse> com DTO
+Command → altera estado   → Result / Result<int>
+Query   → lê dados        → Result<TResponse>
 ```
 
-Cada caso de uso tem pasta isolada com `Command/Query + Handler + Validator`.
+Cada caso de uso tem pasta isolada: `Command/Query + Handler + Validator`.
 
-### Result Pattern (Railway-Oriented)
+Features de leitura complexa (`CourseComparison`, `AcademicPlanning`, `MultiplePlanning`, `MultipleTargetsPlanning`) usam **repositório próprio com `SqlQuery<T>`** em vez de entidades EF — sem Command/Query tradicional para escrita, apenas Query.
 
-Sem exceções para controle de fluxo:
+### Result Pattern
 
 ```csharp
-// Falha de negócio — nunca throw em handlers
+// Sem exceções para controle de fluxo de negócio
 return Result.Failure<int>(new Error("Institution.EmptyName", "Institution name is required."));
-
-// Verificação no handler
-if (result.IsFailure)
-    return Result.Failure<int>(result.Error);
+return Result.Success(entity.Id);
 
 // No controller
 if (result.IsFailure)
     return BadRequest(new ProblemDetails { Detail = result.Error.Message });
 ```
 
-### Interfaces de Messaging
+### EF Core 9 — SqlQuery<T>
+
+Features de análise usam `dbContext.Database.SqlQuery<TRow>($"...")` com interpolação segura do EF Core (parametrizado automaticamente):
 
 ```csharp
-ICommand                        // Command sem retorno → Result
-ICommand<TResponse>             // Command com retorno → Result<TResponse>
-ICommandHandler<TCommand>       // Handler sem retorno
-ICommandHandler<TCommand, T>    // Handler com retorno
-IQuery<TResponse>               // Query sempre tem retorno
-IQueryHandler<TQuery, TResponse>
-```
+// ✅ CORRETO — sem ORDER BY (EF Core 9 envolve em subquery; SQL Server rejeita ORDER BY)
+var rows = await dbContext.Database
+    .SqlQuery<SubjectRow>($"""
+        SELECT s.SubjectName, s.TotalSubjectHours AS Hours, t.TermNumber
+        FROM   AcademicTerm t
+        JOIN   CourseModule m  ON m.TermId   = t.TermId
+        JOIN   AcademicSubject s ON s.ModuleId = m.ModuleId
+        WHERE  t.ProgramId = {programId}
+        """)
+    .ToListAsync(ct);
 
-> **Atenção:** todo arquivo `XxxCommand.cs` ou `XxxQuery.cs` deve ter `using SyllabusTrack.Application.Abstractions.Messaging;` — sem ele, `ICommand` e `IQuery` não são resolvidos pelo compilador.
+// Ordenação sempre em C# depois do ToListAsync()
+var ordered = rows.GroupBy(r => r.TermNumber).OrderBy(g => g.Key);
+
+// ❌ ERRADO — causa "ORDER BY clause is invalid in views, inline functions..."
+// ORDER BY t.TermNumber  ← nunca dentro de SqlQuery<T>
+```
 
 ### Repository + Unit of Work
 
 - `AsNoTracking()` **apenas** em leituras puras; nunca em métodos usados para update.
-- `IUnitOfWork.CommitAsync()` persiste tudo atomicamente.
-- Soft delete: `entity.Deactivate()` → `IsActive = false` → `CommitAsync()`.
-
-### SOLID
-
-| Princípio | Aplicação |
-|---|---|
-| **S**ingle Responsibility | Cada handler tem um único caso de uso |
-| **O**pen/Closed | Novos comportamentos via novos handlers, sem alterar existentes |
-| **L**iskov Substitution | Repositórios concretos substituem as interfaces sem quebrar contratos |
-| **I**nterface Segregation | `IRepository` por aggregate + `IUnitOfWork` separados |
-| **D**ependency Inversion | Application depende de interfaces; Infrastructure implementa |
+- `IUnitOfWork.CommitAsync()` persiste atomicamente.
+- Soft delete: `entity.Deactivate()` → `IsActive = false`.
 
 ---
 
-## Camadas da API
+## API — Endpoints
 
 ### Autenticação (público)
 
 ```
-POST /api/auth/register   → Cadastra novo estudante → { studentId }
-POST /api/auth/login      → Autentica credenciais   → { token }
+POST /api/auth/register   → { studentId }
+POST /api/auth/login      → { token }
 ```
 
-### Instituições (requer JWT)
+### Instituições `[Authorize]`
 
 ```
-GET    /api/institutions         → Lista todas as instituições ativas
-GET    /api/institutions/{id}    → Busca instituição por ID
-POST   /api/institutions         → Cria nova instituição → { institutionId }
-PUT    /api/institutions/{id}    → Atualiza nome, sigla e localização
+GET  /api/institutions         → Lista ativas
+GET  /api/institutions/{id}
+POST /api/institutions         → { institutionId }
+PUT  /api/institutions/{id}
 ```
 
-### Cursos (requer JWT)
+### Cursos `[Authorize]`
 
 ```
-GET    /api/programs             → Lista todos os cursos ativos
-GET    /api/programs/{id}        → Busca curso por ID
-POST   /api/programs             → Cria novo curso (vincula à instituição) → { programId }
-PUT    /api/programs/{id}        → Atualiza nome, versão e total de semestres
+GET  /api/programs             → Lista ativos
+GET  /api/programs/{id}
+POST /api/programs             → { programId }
+PUT  /api/programs/{id}
+
+GET  /api/programs/{sourceId}/compare/{targetId}
+     → CourseComparisonResponse (percentual de aproveitamento 1→1)
+
+GET  /api/programs/{sourceId}/planning/{targetId}
+     → AcademicPlanningResponse (plano semestral 1→1)
+
+POST /api/programs/planning/multiple
+     Body: { sourceProgramIds: int[], targetProgramId: int }
+     → MultiplePlanningResponse (plano N fontes → 1 alvo)
+
+POST /api/programs/planning/multiple-targets
+     Body: { sourceProgramIds: int[], targetProgramIds: int[] }
+     → MultipleTargetsPlanningResponse (plano N fontes → N alvos com plano consolidado)
 ```
 
-### Disciplinas (requer JWT)
+### Disciplinas `[Authorize]`
 
 ```
-POST   /api/subjects             → Cria nova disciplina (vincula ao módulo via ModuleId) → { subjectId }
+POST /api/subjects             → { subjectId }
 ```
 
-### Matrículas e Progresso (requer JWT)
+### Matrículas e Progresso `[Authorize]`
 
 ```
-GET    /api/enrollments/student/{studentId}       → Matrículas do estudante com progresso completo
-POST   /api/enrollments                           → Matricula estudante em um curso → { enrollmentId }
-POST   /api/enrollments/{enrollmentId}/progress   → Registra progresso de uma disciplina
+GET  /api/enrollments/student/{studentId}
+POST /api/enrollments                          → { enrollmentId }
+POST /api/enrollments/{enrollmentId}/progress
 ```
 
 ### Respostas de Erro Padronizadas
 
-| Situação | Status | Formato |
-|---|---|---|
-| Validação FluentValidation | 422 | `{ title, detail }` |
-| Regra de negócio | 400 | `{ title, detail, extensions.code }` |
-| Não encontrado | 404 | `{ title, detail, extensions.code }` |
-| Não autorizado | 401 | `{ title, detail, extensions.code }` |
-| Erro interno | 500 | `{ title, detail }` |
+| Status | Situação |
+|---|---|
+| 400 | Regra de negócio, validação FluentValidation |
+| 401 | Não autenticado |
+| 404 | Recurso não encontrado |
+| 422 | Validação de payload |
+| 500 | Erro interno não tratado |
 
 ---
 
-## Testes
+## Dados de Seed
 
-### Estratégia BDD com Reqnroll
-
-Testes escritos como feature files Gherkin, testando a camada Application em isolamento com NSubstitute — sem banco de dados real, sem WebApplicationFactory.
-
-```gherkin
-Feature: Cadastro de Instituição
-
-  Scenario: Cadastrar com sucesso
-    When cadastro a instituição "Fundação UnirG" com sigla "UnirG" e localização "Gurupi"
-    Then o cadastro deve ter sucesso e retornar um ID positivo
-
-  Scenario: Rejeitar nome vazio
-    When cadastro a instituição "" com sigla "X" e localização "Y"
-    Then o cadastro deve falhar com o erro "Institution.EmptyName"
-
-Feature: Login de Estudante
-
-  Scenario: Login com credenciais inválidas
-    Given um estudante cadastrado com email "student@unirg.edu.br"
-    When realizo login com senha incorreta
-    Then o login deve falhar com o erro "Auth.InvalidCredentials"
-
-Feature: Progresso Acadêmico
-
-  Scenario: Rejeitar disciplina já concluída
-    Given uma matrícula com a disciplina 42 com status "Completed"
-    When adiciono progresso para a disciplina 42 novamente
-    Then deve falhar com o erro "Enrollment.SubjectAlreadyCompleted"
-```
-
-### O que é testado
-
-| Escopo | Ferramenta |
+| Arquivo | Conteúdo |
 |---|---|
-| Handlers de Command e Query | xUnit + NSubstitute + FluentAssertions |
-| Validators FluentValidation | xUnit |
-| Factories de entidades (regras de domínio) | via testes de handler |
-| Pipeline behaviors | xUnit |
+| `SeedData.sql` | **UnirG**: Medicina (Matriz Nº 5, 12 semestres, ~90 disciplinas) · **FAM EAD**: 19 cursos (ADS, BD, Sistemas para Internet, Gestão de TI, Redes, Ciência da Computação, Engenharia, ADM, Logística, RH, Marketing, etc.) |
+| `Seed_FAM_Psicologia_Farmacia.sql` | **FAM**: Psicologia (10 semestres, 4036h) + Farmácia (8 semestres, 4000h) |
+| `Seed_RodrigoMadeira.sql` | Histórico acadêmico completo do estudante Rodrigo Madeira nos cursos ADS e BD da FAM (matrículas + 46 registros de progresso) |
+| `Cleanup_All.sql` | Remove todas as instituições e seus dados em cascata, respeitando a ordem de FK. Executar antes de re-rodar os seeds. |
 
-### O que não é testado (decisão pragmática)
+### Ordem de execução dos scripts
 
-- Repositórios EF Core (sem banco de dados de teste)
-- Controllers (sem WebApplicationFactory)
-- Infraestrutura de segurança (JWT, BCrypt)
+```sql
+-- 1. Estrutura do banco (apenas na primeira vez ou após drop)
+Sql/MasterScript.sql
 
-### Executar os testes
+-- 2. Limpar dados existentes (quando for reexecutar seeds)
+Sql/Cleanup_All.sql
 
-```bash
-cd BackEnd/SyllabusTrack
-dotnet test
+-- 3. Seed principal (UnirG + FAM EAD 19 cursos)
+Sql/SeedData.sql
+
+-- 4. Seed Psicologia + Farmácia
+Sql/Seed_FAM_Psicologia_Farmacia.sql
+
+-- 5. Histórico do estudante (após os seeds de cursos)
+Sql/Seed_RodrigoMadeira.sql
 ```
 
 ---
@@ -504,26 +455,16 @@ dotnet test
 | Ferramenta | Versão mínima |
 |---|---|
 | .NET SDK | 9.0 |
-| SQL Server | 2019+ (ou SQL Server Express / LocalDB) |
-| Node.js | 18+ (para o frontend) |
-
----
+| SQL Server | 2019+ (ou Express / LocalDB) |
+| Node.js | 18+ |
 
 ### Backend
 
-#### 1. Configurar o banco de dados
+**1. Configurar o banco**
 
-Execute os scripts no SQL Server Management Studio ou Azure Data Studio:
+Execute os scripts SQL na ordem descrita na seção anterior.
 
-```sql
--- 1. Cria banco, tabelas, índices e stored procedures
-Sql/MasterScript.sql
-
--- 2. Popula com o currículo real de Medicina da UnirG (Matriz Nº 5, 12 períodos)
-Sql/SeedData.sql
-```
-
-#### 2. Ajustar `appsettings.json`
+**2. Ajustar `appsettings.json`**
 
 ```json
 {
@@ -539,14 +480,31 @@ Sql/SeedData.sql
 }
 ```
 
-#### 3. Rodar a API
+**3. Rodar a API**
 
 ```bash
 cd BackEnd/SyllabusTrack
 dotnet run --project SyllabusTrack.API
 ```
 
-O **Swagger UI** sobe na raiz da API. Use `POST /api/auth/register` para criar um estudante, `POST /api/auth/login` para obter o token JWT e clique em **Authorize** para autenticar as demais rotas.
+Swagger UI sobe na raiz. Use `POST /api/auth/register` + `POST /api/auth/login` para obter o token e clique em **Authorize**.
+
+### Frontend
+
+```bash
+cd FrontEnd
+npm install
+npm run dev
+```
+
+A aplicação sobe em `http://localhost:5173` por padrão.
+
+### Testes
+
+```bash
+cd BackEnd/SyllabusTrack
+dotnet test
+```
 
 ---
 
@@ -554,18 +512,21 @@ O **Swagger UI** sobe na raiz da API. Use `POST /api/auth/register` para criar u
 
 | Decisão | Justificativa |
 |---|---|
-| **PK como `INT IDENTITY`** | Mais simples e performático para o modelo relacional hierárquico do currículo |
-| **Result Pattern** | Erros de negócio explícitos no tipo de retorno; sem `try/catch` espalhado pelos handlers |
+| **Clean Architecture** | Isolamento de responsabilidades; Domain sem dependências externas |
+| **CQRS com MediatR** | Commands e Queries claramente separados; pipeline behaviors centralizam log e validação |
+| **Result Pattern** | Erros de negócio explícitos no tipo de retorno; sem `try/catch` espalhado |
+| **SqlQuery\<T\> para análise de currículo** | Planejamento e comparação envolvem JOINs complexos entre tabelas sem entidade EF (`AcademicTerm`, `CourseModule`); raw SQL é mais legível e eficiente |
+| **Sem ORDER BY em SqlQuery\<T\>** | EF Core 9 envolve a query em subquery; SQL Server rejeita `ORDER BY` em subqueries sem `TOP`/`OFFSET`. Ordenação sempre em C# após `ToListAsync()` |
+| **HashSet para UNION de disciplinas** | N consultas parametrizadas (uma por fonte) + union em memória via `HashSet<string>` — seguro contra SQL injection, O(1) por lookup |
+| **Plano consolidado no frontend** | Deduplicação entre alvos é computada em memória a partir dos dados já retornados pela API — sem round-trip extra |
 | **Value Objects para Email e Grade** | Centraliza validação; dados inválidos nunca chegam ao banco |
-| **`AsNoTracking()` apenas em leituras puras** | Repositórios usados em update precisam que o EF rastreie a entidade para detectar mudanças |
+| **`AsNoTracking()` apenas em leituras** | Repositórios usados em update precisam que o EF rastreie a entidade |
 | **`OnDelete(Restrict)` entre aggregates** | FKs entre aggregates distintos nunca fazem cascade delete automático |
-| **`OnDelete(Cascade)` em coleções próprias** | `StudentEnrollment → StudentProgress`: progresso pertence ao enrollment |
-| **AcademicTerm e CourseModule sem entidade C#** | São tabelas de suporte ao seed; `AcademicSubject` referencia `ModuleId` como `int` simples |
-| **BCrypt workFactor 12** | Equilíbrio entre segurança e performance em hardware moderno |
-| **usp_AuthenticateStudent sem comparação de senha** | Hash BCrypt não pode ser comparado no SQL — verificação feita via `IPasswordHasher.Verify()` no C# |
-| **Índices explícitos em todas as FKs** | SQL Server não cria índices nas FKs automaticamente; sem eles JOINs fazem table scan |
-| **Reqnroll para BDD** | Testes legíveis como especificação viva; isola Application sem banco de dados |
-| **Swagger com JWT embutido** | Facilita testes manuais durante o desenvolvimento sem ferramentas externas |
+| **`OnDelete(Cascade)` em coleções próprias** | `StudentEnrollment → StudentProgress` pertence ao enrollment |
+| **Soft delete universal** | `IsActive = 0`; dados históricos preservados |
+| **Índices explícitos em FKs** | SQL Server não cria índices nas FKs automaticamente |
+| **BCrypt workFactor 12** | Equilíbrio entre segurança e performance |
+| **useMutation para POST de consulta** | Endpoints de planejamento são POST (body complexo) mas retornam dados; `useMutation` é mais adequado que `useQuery` para disparo manual |
 | **CORS aberto em dev** | `AllowAnyOrigin` apenas em desenvolvimento — restringir por origin em produção |
 
 ---
