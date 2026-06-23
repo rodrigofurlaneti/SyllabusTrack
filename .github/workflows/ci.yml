@@ -15,7 +15,7 @@ env:
 
 jobs:
 
-  # ── Backend: Build + Testes ────────────────────────────────────────────────
+  # ── Backend: Build + Unit Tests + BDD Specs ───────────────────────────────
   backend:
     name: Backend — Build & Test
     runs-on: ubuntu-latest
@@ -29,36 +29,51 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Debug — listar estrutura do repositório
-        run: |
-          echo "=== Raiz do repositório ==="
-          ls -la
-          echo "=== Arquivos .sln encontrados ==="
-          find . -name "*.sln" 2>/dev/null || echo "Nenhum .sln encontrado"
-          echo "=== Arquivos .csproj encontrados ==="
-          find . -name "*.csproj" 2>/dev/null || echo "Nenhum .csproj encontrado"
-
       - name: Restore dependencies
         run: dotnet restore BackEnd/SyllabusTrack/SyllabusTrack.sln
 
       - name: Build
         run: dotnet build BackEnd/SyllabusTrack/SyllabusTrack.sln --no-restore -c Release
 
-      - name: Run tests
+      # ── Unit Tests (xUnit — SyllabusTrack.Tests) ────────────────────────────
+      - name: Run Unit Tests
         run: >
-          dotnet test BackEnd/SyllabusTrack/SyllabusTrack.sln
-          --no-build -c Release --verbosity normal
-          --logger "trx;LogFileName=results.trx"
+          dotnet test BackEnd/SyllabusTrack/SyllabusTrack.Tests/SyllabusTrack.Tests.csproj
+          --no-build -c Release
+          --verbosity normal
+          --logger "trx;LogFileName=unit-tests.trx"
+          --logger "console;verbosity=normal"
           --results-directory ./TestResults
 
+      # ── BDD Specs (Reqnroll — SyllabusTrack.Specs) ─────────────────────────
+      - name: Run BDD Specs
+        run: >
+          dotnet test BackEnd/SyllabusTrack/SyllabusTrack.Specs/SyllabusTrack.Specs.csproj
+          --no-build -c Release
+          --verbosity normal
+          --logger "trx;LogFileName=bdd-specs.trx"
+          --logger "console;verbosity=normal"
+          --results-directory ./TestResults
+
+      # ── Resultados ─────────────────────────────────────────────────────────
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-backend
           path: TestResults/*.trx
+          retention-days: 14
 
-  # ── Frontend: Build + Lint ─────────────────────────────────────────────────
+      - name: Publish test summary
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Backend Test Results"
+          path: TestResults/*.trx
+          reporter: dotnet-trx
+          fail-on-error: true
+
+  # ── Frontend: Build + Type check ──────────────────────────────────────────
   frontend:
     name: Frontend — Build & Lint
     runs-on: ubuntu-latest
@@ -95,7 +110,7 @@ jobs:
           path: FrontEnd/dist/
           retention-days: 7
 
-  # ── Docker: Build & Push (apenas no push para main) ───────────────────────
+  # ── Docker: Build & Push (apenas push para main) ──────────────────────────
   docker:
     name: Docker — Build & Push
     runs-on: ubuntu-latest
@@ -164,7 +179,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Resumo ─────────────────────────────────────────────────────────────────
+  # ── Pipeline Summary ───────────────────────────────────────────────────────
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
@@ -175,7 +190,16 @@ jobs:
       - name: Report status
         run: |
           echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Build & Test | ${{ needs.backend.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Build & Lint | ${{ needs.frontend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> Test reports available in the **Artifacts** section and the **Backend Test Results** check." >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if any job failed
+        if: needs.backend.result == 'failure' || needs.frontend.result == 'failure'
+        run: |
+          echo "❌ Pipeline failed. Check the jobs above for details."
+          exit 1
