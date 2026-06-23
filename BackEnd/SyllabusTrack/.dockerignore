@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.git/
+**/TestResults/
+**/*.user
+**/node_modules/

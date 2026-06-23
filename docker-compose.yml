@@ -1,0 +1,99 @@
+services:
+
+  # ── SQL Server ──────────────────────────────────────────────────────────────
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: syllabustrack-db
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "${SA_PASSWORD:-SyllabusTrack@2024!}"
+      MSSQL_PID: "Express"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+      - ./Sql:/sql:ro
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa",
+             "-P", "${SA_PASSWORD:-SyllabusTrack@2024!}", "-C", "-Q", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - syllabustrack
+
+  # ── DB Init (roda os seeds na primeira vez) ─────────────────────────────────
+  db-init:
+    image: mcr.microsoft.com/mssql-tools
+    container_name: syllabustrack-db-init
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      SA_PASSWORD: "${SA_PASSWORD:-SyllabusTrack@2024!}"
+    volumes:
+      - ./Sql:/sql:ro
+    entrypoint: ["/bin/bash", "/sql/docker-init.sh"]
+    networks:
+      - syllabustrack
+    restart: "no"
+
+  # ── Backend API ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./BackEnd/SyllabusTrack
+      dockerfile: SyllabusTrack.API/Dockerfile
+    container_name: syllabustrack-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__DefaultConnection: >-
+        Server=sqlserver,1433;Database=SyllabusTrackDb;
+        User Id=sa;Password=${SA_PASSWORD:-SyllabusTrack@2024!};
+        TrustServerCertificate=True;
+      Jwt__Issuer: "SyllabusTrack.API"
+      Jwt__Audience: "SyllabusTrack.Client"
+      Jwt__SecretKey: "${JWT_SECRET_KEY:-CHANGE_THIS_KEY_TO_SOMETHING_SECURE_32CHARS}"
+      Jwt__ExpirationMinutes: "60"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - syllabustrack
+    restart: unless-stopped
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./FrontEnd
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""   # vazio = proxy nginx para /api → api:8080
+    container_name: syllabustrack-frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - syllabustrack
+    restart: unless-stopped
+
+# ── Volumes e Networks ──────────────────────────────────────────────────────
+volumes:
+  sqlserver_data:
+    driver: local
+
+networks:
+  syllabustrack:
+    driver: bridge
