@@ -55,6 +55,16 @@ jobs:
           --logger "console;verbosity=normal"
           --results-directory ./TestResults
 
+      # ── Architecture Tests (NetArchTest — SyllabusTrack.ArchTests) ──────────
+      - name: Run Architecture Tests
+        run: >
+          dotnet test BackEnd/SyllabusTrack/SyllabusTrack.ArchTests/SyllabusTrack.ArchTests.csproj
+          --no-build -c Release
+          --verbosity normal
+          --logger "trx;LogFileName=arch-tests.trx"
+          --logger "console;verbosity=normal"
+          --results-directory ./TestResults
+
       # ── Resultados ─────────────────────────────────────────────────────────
       - name: Upload test results
         if: always()
@@ -193,7 +203,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend Build & Test | ${{ needs.backend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Build, Unit Tests & BDD Specs | ${{ needs.backend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Architecture Tests (NetArchTest) | ${{ needs.backend.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Build & Lint | ${{ needs.frontend.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> Test reports available in the **Artifacts** section and the **Backend Test Results** check." >> $GITHUB_STEP_SUMMARY
