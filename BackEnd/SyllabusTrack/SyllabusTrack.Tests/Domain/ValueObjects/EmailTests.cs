@@ -42,7 +42,8 @@ public sealed class EmailTests
     [Fact]
     public void Create_WithEmailExceedingMaxLength_ShouldFail()
     {
-        var longEmail = new string('a', 248) + "@b.com"; // > 255 chars
+        // 256 chars: 250 'a' + '@' + 'b' + '.' + 'com' = 256
+        var longEmail = new string('a', 250) + "@b.com";
         var result = Email.Create(longEmail);
 
         result.IsFailure.Should().BeTrue();
@@ -52,8 +53,8 @@ public sealed class EmailTests
     [Fact]
     public void Create_WithEmailAtMaxLength_ShouldSucceed()
     {
-        // 255 chars exactly: 249 'a' + '@' + 'b' + '.' + 'cc'
-        var email = new string('a', 249) + "@b.cc";
+        // 255 chars exactly: 250 'a' + '@' + 'b' + '.' + 'cc' = 255
+        var email = new string('a', 250) + "@b.cc";
         email.Length.Should().Be(255);
 
         var result = Email.Create(email);
