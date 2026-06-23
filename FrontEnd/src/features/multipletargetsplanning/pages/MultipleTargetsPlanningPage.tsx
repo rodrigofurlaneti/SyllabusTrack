@@ -125,8 +125,7 @@ function TargetResultCard({
 }) {
   const [open, setOpen] = useState(index === 0) // primeiro aberto por padrão
 
-  const pct     = result.subjectMatchPercentage
-  const barColor = pct >= 60 ? 'bg-green-500' : pct >= 30 ? 'bg-yellow-400' : 'bg-red-400'
+  const pct      = result.subjectMatchPercentage
   const bdgColor = pct >= 60 ? 'bg-green-100 text-green-800' : pct >= 30 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
 
   return (
