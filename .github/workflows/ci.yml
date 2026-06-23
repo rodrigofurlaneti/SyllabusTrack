@@ -30,25 +30,24 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
-        run: dotnet restore
-        working-directory: BackEnd/SyllabusTrack
+        run: dotnet restore BackEnd/SyllabusTrack/SyllabusTrack.sln
 
       - name: Build
-        run: dotnet build --no-restore -c Release
-        working-directory: BackEnd/SyllabusTrack
+        run: dotnet build BackEnd/SyllabusTrack/SyllabusTrack.sln --no-restore -c Release
 
       - name: Run tests
-        run: dotnet test --no-build -c Release --verbosity normal \
-               --logger "trx;LogFileName=results.trx" \
-               --results-directory ./TestResults
-        working-directory: BackEnd/SyllabusTrack
+        run: >
+          dotnet test BackEnd/SyllabusTrack/SyllabusTrack.sln
+          --no-build -c Release --verbosity normal
+          --logger "trx;LogFileName=results.trx"
+          --results-directory ./TestResults
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-backend
-          path: BackEnd/SyllabusTrack/TestResults/*.trx
+          path: TestResults/*.trx
 
   # ── Frontend: Build + Lint ─────────────────────────────────────────────────
   frontend:
