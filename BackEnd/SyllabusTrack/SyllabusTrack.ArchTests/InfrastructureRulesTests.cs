@@ -19,14 +19,19 @@ public sealed class InfrastructureRulesTests : ArchTestBase
     [Fact(DisplayName = "Repositórios concretos devem terminar em 'Repository'")]
     public void Infrastructure_Repositories_MustFollowNamingConvention()
     {
-        var result = Types.InAssembly(InfrastructureAssembly)
-            .That().ResideInNamespace(InfraReposNs)
-            .Should().HaveNameEndingWith("Repository")
-            .GetResult();
+        // Exclui tipos aninhados (private records usados para mapear resultados SQL
+        // internamente, ex: AcademicPlanningRepository+ProgramInfoRow).
+        var violations = InfrastructureAssembly.GetTypes()
+            .Where(t => t.Namespace?.StartsWith(InfraReposNs) == true
+                     && t.DeclaringType == null    // não é tipo aninhado
+                     && !t.IsAbstract && !t.IsInterface)
+            .Where(t => !t.Name.EndsWith("Repository"))
+            .Select(t => t.Name)
+            .ToList();
 
-        result.IsSuccessful.Should().BeTrue(
+        violations.Should().BeEmpty(
             because: "implementações de repositório devem terminar em 'Repository'. " +
-                     FormatViolations(result));
+                     "Violações: " + string.Join(", ", violations));
     }
 
     [Fact(DisplayName = "Repositórios concretos devem ser sealed")]
@@ -74,9 +79,14 @@ public sealed class InfrastructureRulesTests : ArchTestBase
     [Fact(DisplayName = "Entity configurations devem implementar IEntityTypeConfiguration<T>")]
     public void Infrastructure_Configurations_MustImplementIEntityTypeConfiguration()
     {
+        // Exclui:
+        //   • tipos aninhados (DeclaringType != null)
+        //   • tipos gerados pelo compilador para lambdas/closures (nome começa com '<')
         var violations = InfrastructureAssembly.GetTypes()
             .Where(t => t.Namespace?.StartsWith(InfraConfigurationsNs) == true
-                     && !t.IsAbstract && !t.IsInterface)
+                     && !t.IsAbstract && !t.IsInterface
+                     && t.DeclaringType == null        // não é tipo aninhado
+                     && !t.Name.StartsWith("<"))       // não é gerado pelo compilador (<>c, etc.)
             .Where(t => !t.GetInterfaces().Any(i =>
                 i.IsGenericType &&
                 i.GetGenericTypeDefinition() == typeof(IEntityTypeConfiguration<>)))

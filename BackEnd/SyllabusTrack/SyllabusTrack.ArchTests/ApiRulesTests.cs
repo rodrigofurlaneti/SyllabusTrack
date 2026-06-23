@@ -23,7 +23,7 @@ public sealed class ApiRulesTests : ArchTestBase
         // Toda classe que herda ControllerBase deve estar no namespace correto
         var violations = ApiAssembly.GetTypes()
             .Where(t => !t.IsAbstract && !t.IsInterface
-                     && IsController(t))
+                     && InheritsType(t, typeof(ControllerBase)))
             .Where(t => t.Namespace != ApiControllersNs)
             .Select(t => $"{t.Name} (namespace atual: {t.Namespace})")
             .ToList();
@@ -36,15 +36,19 @@ public sealed class ApiRulesTests : ArchTestBase
     [Fact(DisplayName = "Controllers devem terminar em 'Controller'")]
     public void Api_Controllers_MustFollowNamingConvention()
     {
-        var result = Types.InAssembly(ApiAssembly)
-            .That().ResideInNamespace(ApiControllersNs)
-            .And().AreNotAbstract()
-            .Should().HaveNameEndingWith("Controller")
-            .GetResult();
+        // Filtra apenas tipos que herdam ControllerBase (controllers reais),
+        // excluindo DTOs e records de request que residem no mesmo namespace.
+        var violations = ApiAssembly.GetTypes()
+            .Where(t => !t.IsAbstract && !t.IsInterface
+                     && t.Namespace == ApiControllersNs
+                     && InheritsType(t, typeof(ControllerBase)))
+            .Where(t => !t.Name.EndsWith("Controller"))
+            .Select(t => t.Name)
+            .ToList();
 
-        result.IsSuccessful.Should().BeTrue(
+        violations.Should().BeEmpty(
             because: "controllers devem terminar em 'Controller'. " +
-                     FormatViolations(result));
+                     "Violações: " + string.Join(", ", violations));
     }
 
     // ── Controllers: herança da base ──────────────────────────────────────────
@@ -52,16 +56,20 @@ public sealed class ApiRulesTests : ArchTestBase
     [Fact(DisplayName = "Controllers concretos devem herdar ApiController (base interna)")]
     public void Api_Controllers_MustInheritApiController()
     {
-        var result = Types.InAssembly(ApiAssembly)
-            .That().ResideInNamespace(ApiControllersNs)
-            .And().AreNotAbstract()
-            .Should().Inherit(typeof(ApiController))
-            .GetResult();
+        // Filtra apenas tipos que herdam ControllerBase (controllers reais),
+        // excluindo DTOs e records de request que residem no mesmo namespace.
+        var violations = ApiAssembly.GetTypes()
+            .Where(t => !t.IsAbstract && !t.IsInterface
+                     && t.Namespace == ApiControllersNs
+                     && InheritsType(t, typeof(ControllerBase)))
+            .Where(t => !InheritsType(t, typeof(ApiController)))
+            .Select(t => t.Name)
+            .ToList();
 
-        result.IsSuccessful.Should().BeTrue(
+        violations.Should().BeEmpty(
             because: "todo controller concreto deve herdar ApiController para " +
                      "centralizar tratamento de erros e padrão Result. " +
-                     FormatViolations(result));
+                     "Violações: " + string.Join(", ", violations));
     }
 
     // ── Controllers: atributo [ApiController] ─────────────────────────────────
@@ -104,12 +112,13 @@ public sealed class ApiRulesTests : ArchTestBase
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static bool IsController(Type type)
+    /// <summary>Verifica se <paramref name="type"/> herda <paramref name="baseType"/> em qualquer nível.</summary>
+    private static bool InheritsType(Type type, Type baseType)
     {
-        var current = type;
+        var current = type.BaseType;
         while (current != null)
         {
-            if (current == typeof(ControllerBase)) return true;
+            if (current == baseType) return true;
             current = current.BaseType;
         }
         return false;
