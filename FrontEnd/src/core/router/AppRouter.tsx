@@ -7,6 +7,8 @@ import { DashboardPage } from '../../features/dashboard/pages/DashboardPage'
 import { CurriculumPage } from '../../features/curriculum/pages/CurriculumPage'
 import { ProgressPage } from '../../features/progress/pages/ProgressPage'
 import { RecommendationsPage } from '../../features/recommendations/pages/RecommendationsPage'
+import { ComparisonPage } from '../../features/comparison/pages/ComparisonPage'
+import { PlanningPage } from '../../features/planning/pages/PlanningPage'
 
 export function AppRouter() {
   return (
@@ -20,6 +22,8 @@ export function AppRouter() {
           <Route path="/curriculum" element={<CurriculumPage />} />
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/recommendations" element={<RecommendationsPage />} />
+          <Route path="/comparison" element={<ComparisonPage />} />
+          <Route path="/planning"   element={<PlanningPage />} />
         </Route>
       </Route>
 

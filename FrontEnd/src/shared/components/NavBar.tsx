@@ -6,6 +6,8 @@ const navItems = [
   { to: '/curriculum', label: 'Grade Curricular' },
   { to: '/progress', label: 'Progresso' },
   { to: '/recommendations', label: 'Proximos Cursos' },
+  { to: '/comparison',     label: 'Comparar Cursos'    },
+  { to: '/planning',       label: 'Planejamento'       },
 ]
 
 export function NavBar() {

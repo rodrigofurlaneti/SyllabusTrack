@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using SyllabusTrack.Application.Abstractions.Authentication;
+using SyllabusTrack.Application.Features.AcademicPlanning;
+using SyllabusTrack.Application.Features.CourseComparison;
 using SyllabusTrack.Application.Features.Recommendations;
 using SyllabusTrack.Domain.Repositories;
 using SyllabusTrack.Infrastructure.Persistence;
@@ -35,6 +37,8 @@ public static class DependencyInjection
         services.AddScoped<IStudentAccountRepository, StudentAccountRepository>();
         services.AddScoped<IStudentEnrollmentRepository, StudentEnrollmentRepository>();
         services.AddScoped<IProgramRecommendationRepository, ProgramRecommendationRepository>();
+        services.AddScoped<ICourseComparisonRepository, CourseComparisonRepository>();
+        services.AddScoped<IAcademicPlanningRepository, AcademicPlanningRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // === SECURITY ===

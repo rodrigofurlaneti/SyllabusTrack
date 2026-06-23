@@ -1,6 +1,8 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SyllabusTrack.Application.Features.AcademicPlanning;
+using SyllabusTrack.Application.Features.CourseComparison;
 using SyllabusTrack.Application.Features.DegreePrograms;
 using SyllabusTrack.Application.Features.DegreePrograms.Create;
 using SyllabusTrack.Application.Features.DegreePrograms.GetAll;
@@ -71,6 +73,61 @@ public sealed class ProgramsController(ISender sender) : ApiController
             routeName: "GetProgramById",
             routeValues: new { id = result.Value },
             value: new { programId = result.Value });
+    }
+
+    /// <summary>
+    /// Compara as disciplinas de dois cursos e retorna o percentual de aproveitamento.
+    /// Útil para saber quanto do curso-alvo já é coberto pelo curso de referência.
+    /// </summary>
+    /// <param name="sourceId">ID do curso de referência (já cursado ou em andamento)</param>
+    /// <param name="targetId">ID do curso-alvo (que se deseja ingressar)</param>
+    [HttpGet("{sourceId:int}/compare/{targetId:int}")]
+    [ProducesResponseType(typeof(CourseComparisonResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Compare(
+        int sourceId,
+        int targetId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new CompareProgramsQuery(sourceId, targetId), cancellationToken);
+
+        if (result.IsFailure)
+            return NotFound(new ProblemDetails
+            {
+                Title = "Not Found",
+                Detail = result.Error.Message,
+                Extensions = { ["code"] = result.Error.Code }
+            });
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Gera o planejamento acadêmico: quanto tempo o aluno levará para concluir o
+    /// curso-alvo aproveitando o curso de referência já concluído.
+    /// Retorna o batimento de disciplinas por semestre e estimativa de formatura.
+    /// </summary>
+    /// <param name="sourceId">ID do curso já concluído (referência)</param>
+    /// <param name="targetId">ID do curso que deseja ingressar</param>
+    [HttpGet("{sourceId:int}/planning/{targetId:int}")]
+    [ProducesResponseType(typeof(AcademicPlanningResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPlanning(
+        int sourceId,
+        int targetId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new GetAcademicPlanQuery(sourceId, targetId), cancellationToken);
+
+        if (result.IsFailure)
+            return NotFound(new ProblemDetails
+            {
+                Title = "Not Found",
+                Detail = result.Error.Message,
+                Extensions = { ["code"] = result.Error.Code }
+            });
+
+        return Ok(result.Value);
     }
 
     /// <summary>
