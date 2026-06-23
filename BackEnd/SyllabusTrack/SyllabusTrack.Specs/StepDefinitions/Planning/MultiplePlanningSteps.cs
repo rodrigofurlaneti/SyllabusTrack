@@ -12,7 +12,7 @@ public sealed class MultiplePlanningSteps(PlanningContext ctx)
 {
     // ── Given ─────────────────────────────────────────────────────────────────
 
-    [Given("source programs with IDs \\[(.*)\\] and target program with ID {int}")]
+    [Given(@"^source programs with IDs \[(.*)\] and target program with ID (\d+)$")]
     public void GivenSourceProgramIdsAndTarget(string idsRaw, int targetId)
     {
         ctx.SourceProgramIds = ParseIds(idsRaw);

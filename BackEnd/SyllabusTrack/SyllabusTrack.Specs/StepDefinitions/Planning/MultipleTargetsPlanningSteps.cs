@@ -13,21 +13,21 @@ public sealed class MultipleTargetsPlanningSteps(PlanningContext ctx)
 {
     // ── Given: source/target IDs ──────────────────────────────────────────────
 
-    [Given("source program IDs \\[(.*)\\] and target program IDs \\[(.*)\\]")]
+    [Given(@"^source program IDs \[(.*)\] and target program IDs \[(.*)\]$")]
     public void GivenSourceAndTargetIds(string sourceRaw, string targetRaw)
     {
         ctx.SourceProgramIds = ParseIds(sourceRaw);
         ctx.TargetProgramIds = ParseIds(targetRaw);
     }
 
-    [Given("source program IDs are null and target program IDs \\[(.*)\\]")]
+    [Given(@"^source program IDs are null and target program IDs \[(.*)\]$")]
     public void GivenNullSourceAndTargetIds(string targetRaw)
     {
         ctx.SourceProgramIds = null!;
         ctx.TargetProgramIds = ParseIds(targetRaw);
     }
 
-    [Given("source program IDs \\[(.*)\\] and target program IDs are null")]
+    [Given(@"^source program IDs \[(.*)\] and target program IDs are null$")]
     public void GivenSourceAndNullTargetIds(string sourceRaw)
     {
         ctx.SourceProgramIds = ParseIds(sourceRaw);
