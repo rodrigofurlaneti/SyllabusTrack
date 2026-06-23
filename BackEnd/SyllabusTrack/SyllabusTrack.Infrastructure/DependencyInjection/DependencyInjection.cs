@@ -6,6 +6,8 @@ using Microsoft.IdentityModel.Tokens;
 using SyllabusTrack.Application.Abstractions.Authentication;
 using SyllabusTrack.Application.Features.AcademicPlanning;
 using SyllabusTrack.Application.Features.CourseComparison;
+using SyllabusTrack.Application.Features.MultiplePlanning;
+using SyllabusTrack.Application.Features.MultipleTargetsPlanning;
 using SyllabusTrack.Application.Features.Recommendations;
 using SyllabusTrack.Domain.Repositories;
 using SyllabusTrack.Infrastructure.Persistence;
@@ -39,6 +41,8 @@ public static class DependencyInjection
         services.AddScoped<IProgramRecommendationRepository, ProgramRecommendationRepository>();
         services.AddScoped<ICourseComparisonRepository, CourseComparisonRepository>();
         services.AddScoped<IAcademicPlanningRepository, AcademicPlanningRepository>();
+        services.AddScoped<IMultiplePlanningRepository, MultiplePlanningRepository>();
+        services.AddScoped<IMultipleTargetsPlanningRepository, MultipleTargetsPlanningRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // === SECURITY ===

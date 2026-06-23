@@ -9,6 +9,8 @@ import { ProgressPage } from '../../features/progress/pages/ProgressPage'
 import { RecommendationsPage } from '../../features/recommendations/pages/RecommendationsPage'
 import { ComparisonPage } from '../../features/comparison/pages/ComparisonPage'
 import { PlanningPage } from '../../features/planning/pages/PlanningPage'
+import { MultiplePlanningPage } from '../../features/multipleplanning/pages/MultiplePlanningPage'
+import { MultipleTargetsPlanningPage } from '../../features/multipletargetsplanning/pages/MultipleTargetsPlanningPage'
 
 export function AppRouter() {
   return (
@@ -18,12 +20,14 @@ export function AppRouter() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/curriculum" element={<CurriculumPage />} />
-          <Route path="/progress" element={<ProgressPage />} />
-          <Route path="/recommendations" element={<RecommendationsPage />} />
-          <Route path="/comparison" element={<ComparisonPage />} />
-          <Route path="/planning"   element={<PlanningPage />} />
+          <Route path="/dashboard"          element={<DashboardPage />} />
+          <Route path="/curriculum"         element={<CurriculumPage />} />
+          <Route path="/progress"           element={<ProgressPage />} />
+          <Route path="/recommendations"    element={<RecommendationsPage />} />
+          <Route path="/comparison"         element={<ComparisonPage />} />
+          <Route path="/planning"           element={<PlanningPage />} />
+          <Route path="/multiple-planning"         element={<MultiplePlanningPage />} />
+          <Route path="/multiple-targets-planning" element={<MultipleTargetsPlanningPage />} />
         </Route>
       </Route>
 

@@ -84,7 +84,8 @@ WHERE TermId IS NULL
        OR ModuleCode LIKE 'GF-%'   OR ModuleCode LIKE 'LOG-%'  OR ModuleCode LIKE 'MKT-%'
        OR ModuleCode LIKE 'MDDS-%' OR ModuleCode LIKE 'PG-%'   OR ModuleCode LIKE 'RP-%'
        OR ModuleCode LIKE 'SEP-%'  OR ModuleCode LIKE 'IAML-%' OR ModuleCode LIKE 'OPT'
-       OR ModuleCode LIKE '630131%');
+       OR ModuleCode LIKE '630131%'
+       OR ModuleCode LIKE 'PSI-%'  OR ModuleCode LIKE 'FAR-%');
 PRINT 'CourseModule órfãos removidos: ' + CAST(@@ROWCOUNT AS VARCHAR);
 
 -- ============================================================

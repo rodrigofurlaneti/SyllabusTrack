@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SyllabusTrack.Application.Features.AcademicPlanning;
 using SyllabusTrack.Application.Features.CourseComparison;
+using SyllabusTrack.Application.Features.MultiplePlanning;
+using SyllabusTrack.Application.Features.MultipleTargetsPlanning;
 using SyllabusTrack.Application.Features.DegreePrograms;
 using SyllabusTrack.Application.Features.DegreePrograms.Create;
 using SyllabusTrack.Application.Features.DegreePrograms.GetAll;
@@ -126,6 +128,84 @@ public sealed class ProgramsController(ISender sender) : ApiController
                 Detail = result.Error.Message,
                 Extensions = { ["code"] = result.Error.Code }
             });
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Gera o planejamento acadêmico com múltiplos cursos de referência.
+    /// Retorna o aproveitamento da UNIÃO de disciplinas de todos os cursos-fonte
+    /// comparada ao curso-alvo, com estimativa de tempo para formatura.
+    /// </summary>
+    /// <param name="request">Lista de IDs dos cursos já concluídos e o ID do curso-alvo.</param>
+    [HttpPost("planning/multiple")]
+    [ProducesResponseType(typeof(MultiplePlanningResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMultiplePlanning(
+        [FromBody] MultiplePlanningRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetMultiplePlanQuery(request.SourceProgramIds, request.TargetProgramId),
+            cancellationToken);
+
+        if (result.IsFailure)
+        {
+            if (result.Error.Code.Contains("NotFound"))
+                return NotFound(new ProblemDetails
+                {
+                    Title  = "Not Found",
+                    Detail = result.Error.Message,
+                    Extensions = { ["code"] = result.Error.Code }
+                });
+
+            return BadRequest(new ProblemDetails
+            {
+                Title  = "Bad Request",
+                Detail = result.Error.Message,
+                Extensions = { ["code"] = result.Error.Code }
+            });
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Gera o planejamento com N cursos de referência contra N cursos-alvo.
+    /// A UNIÃO de disciplinas dos cursos-fonte é calculada uma vez e aplicada
+    /// individualmente contra cada curso-alvo. Retorna um resultado por alvo.
+    /// </summary>
+    /// <param name="request">IDs dos cursos concluídos (fontes) e dos cursos desejados (alvos).</param>
+    [HttpPost("planning/multiple-targets")]
+    [ProducesResponseType(typeof(MultipleTargetsPlanningResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMultipleTargetsPlanning(
+        [FromBody] MultipleTargetsPlanningRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(
+            new GetMultipleTargetsPlanQuery(request.SourceProgramIds, request.TargetProgramIds),
+            cancellationToken);
+
+        if (result.IsFailure)
+        {
+            if (result.Error.Code.Contains("NotFound"))
+                return NotFound(new ProblemDetails
+                {
+                    Title  = "Not Found",
+                    Detail = result.Error.Message,
+                    Extensions = { ["code"] = result.Error.Code }
+                });
+
+            return BadRequest(new ProblemDetails
+            {
+                Title  = "Bad Request",
+                Detail = result.Error.Message,
+                Extensions = { ["code"] = result.Error.Code }
+            });
+        }
 
         return Ok(result.Value);
     }

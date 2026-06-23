@@ -2,12 +2,14 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../core/auth/authStore'
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/curriculum', label: 'Grade Curricular' },
-  { to: '/progress', label: 'Progresso' },
-  { to: '/recommendations', label: 'Proximos Cursos' },
-  { to: '/comparison',     label: 'Comparar Cursos'    },
-  { to: '/planning',       label: 'Planejamento'       },
+  { to: '/dashboard',         label: 'Dashboard'           },
+  { to: '/curriculum',        label: 'Grade Curricular'     },
+  { to: '/progress',          label: 'Progresso'            },
+  { to: '/recommendations',   label: 'Proximos Cursos'      },
+  { to: '/comparison',        label: 'Comparar Cursos'      },
+  { to: '/planning',          label: 'Planejamento'         },
+  { to: '/multiple-planning',         label: 'Planej. Múltiplo'  },
+  { to: '/multiple-targets-planning', label: 'Multi-Alvo'        },
 ]
 
 export function NavBar() {
