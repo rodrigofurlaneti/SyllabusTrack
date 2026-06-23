@@ -29,6 +29,15 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Debug — listar estrutura do repositório
+        run: |
+          echo "=== Raiz do repositório ==="
+          ls -la
+          echo "=== Arquivos .sln encontrados ==="
+          find . -name "*.sln" 2>/dev/null || echo "Nenhum .sln encontrado"
+          echo "=== Arquivos .csproj encontrados ==="
+          find . -name "*.csproj" 2>/dev/null || echo "Nenhum .csproj encontrado"
+
       - name: Restore dependencies
         run: dotnet restore BackEnd/SyllabusTrack/SyllabusTrack.sln
 
