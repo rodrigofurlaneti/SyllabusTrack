@@ -31,19 +31,12 @@ public sealed class CourseComparisonSteps(PlanningContext ctx)
     public void GivenComparisonRepositoryReturnsPct(int pct)
         => GivenComparisonWithMatch(pct);
 
-    [Given("the comparison repository returns null (programs not found)")]
+    [Given("the comparison repository returns null \\(programs not found\\)")]
     public void GivenComparisonRepositoryNull()
     {
         ctx.ComparisonRepo
            .Setup(r => r.CompareAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
            .ReturnsAsync((CourseComparisonResponse?)null);
-    }
-
-    [Given("a source program with ID {int} and a target program with ID {int}")]
-    public void GivenSourceAndTargetProgramIds(int sourceId, int targetId)
-    {
-        ctx.SourceProgramId = sourceId;
-        ctx.TargetProgramId = targetId;
     }
 
     // ── When ──────────────────────────────────────────────────────────────────

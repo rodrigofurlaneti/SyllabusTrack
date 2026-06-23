@@ -11,8 +11,8 @@ namespace SyllabusTrack.Domain.Entities
     public sealed class AcademicSubject : Entity
     {
         public int ModuleId { get; private set; }
-        public string SubjectCode { get; private set; }
-        public string SubjectName { get; private set; }
+        public string SubjectCode { get; private set; } = null!;
+        public string SubjectName { get; private set; } = null!;
         public int SubjectCredits { get; private set; }
         public int TotalSubjectHours { get; private set; }
         public bool IsOptional { get; private set; }

@@ -85,7 +85,10 @@ public sealed class AcademicPlanningSteps(PlanningContext ctx)
     [Then("the match percentage should be {int}")]
     public void ThenMatchPercentageShouldBe(int pct)
     {
-        ctx.AcademicPlanResult!.Value.SubjectMatchPercentage.Should().Be(pct);
+        if (ctx.AcademicPlanResult is not null)
+            ctx.AcademicPlanResult.Value.SubjectMatchPercentage.Should().Be(pct);
+        else
+            ctx.ComparisonResult!.Value.SubjectMatchPercentage.Should().Be(pct);
     }
 
     [Then("the years saved should be greater than {int}")]

@@ -10,9 +10,9 @@ namespace SyllabusTrack.Domain.Entities
 {
     public sealed class EducationalInstitution : AggregateRoot
     {
-        public string InstitutionName { get; private set; }
-        public string InstitutionAcronym { get; private set; }
-        public string CampusLocation { get; private set; }
+        public string InstitutionName { get; private set; } = null!;
+        public string InstitutionAcronym { get; private set; } = null!;
+        public string CampusLocation { get; private set; } = null!;
         public bool IsActive { get; private set; }
 
         private EducationalInstitution() : base(0) { } // EF Core

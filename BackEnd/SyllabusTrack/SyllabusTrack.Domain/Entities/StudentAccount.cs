@@ -11,11 +11,11 @@ namespace SyllabusTrack.Domain.Entities
 {
     public sealed class StudentAccount : AggregateRoot
     {
-        public string StudentFullName { get; private set; }
-        public string LoginUsername { get; private set; }
-        public Email EmailAddress { get; private set; }
-        public string CellPhoneNumber { get; private set; }
-        public string AccountPassword { get; private set; }
+        public string StudentFullName { get; private set; } = null!;
+        public string LoginUsername { get; private set; } = null!;
+        public Email EmailAddress { get; private set; } = null!;
+        public string CellPhoneNumber { get; private set; } = null!;
+        public string AccountPassword { get; private set; } = null!;
         public bool IsActive { get; private set; }
         public DateTime CreatedAt { get; private set; }
         public DateTime UpdatedAt { get; private set; }

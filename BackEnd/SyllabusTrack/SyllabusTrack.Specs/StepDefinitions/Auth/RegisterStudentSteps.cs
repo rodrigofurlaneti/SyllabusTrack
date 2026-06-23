@@ -60,7 +60,13 @@ public sealed class RegisterStudentSteps(AuthContext ctx)
     }
 
     [Given("the username is empty")]
-    public void GivenUsernameIsEmpty() => _username = "";
+    public void GivenUsernameIsEmpty()
+    {
+        ctx.RepoMock
+           .Setup(r => r.IsUsernameUniqueAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(true);
+        _username = "";
+    }
 
     [Given("I want to register with the following data:")]
     public void GivenRegistrationData(DataTable table)

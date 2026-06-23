@@ -14,8 +14,8 @@ namespace SyllabusTrack.Domain.Entities
         public int EnrollmentId { get; private set; }
         public int SubjectId { get; private set; }
         public AcademicSubject? Subject { get; private set; } // Navigation property para EF Core Include
-        public string CompletionStatus { get; private set; }
-        public string SemesterTaken { get; private set; }
+        public string CompletionStatus { get; private set; } = null!;
+        public string SemesterTaken { get; private set; } = null!;
         public Grade? FinalGrade { get; private set; } // Uso do Value Object Grade
         public bool IsActive { get; private set; }
 

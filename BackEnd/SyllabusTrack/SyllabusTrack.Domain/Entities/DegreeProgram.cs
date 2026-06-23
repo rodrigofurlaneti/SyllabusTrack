@@ -11,8 +11,8 @@ namespace SyllabusTrack.Domain.Entities
     public sealed class DegreeProgram : AggregateRoot
     {
         public int InstitutionId { get; private set; }
-        public string ProgramName { get; private set; }
-        public string CurriculumVersion { get; private set; }
+        public string ProgramName { get; private set; } = null!;
+        public string CurriculumVersion { get; private set; } = null!;
         public int TotalSemesters { get; private set; }
         public bool IsActive { get; private set; }
 

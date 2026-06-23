@@ -26,6 +26,10 @@ namespace SyllabusTrack.Domain.ValueObjects
             if (!email.Contains('@'))
                 return Result.Failure<Email>(new Error("Email.Invalid", "Email format is invalid."));
 
+            var atIndex = email.IndexOf('@');
+            if (atIndex == 0 || atIndex == email.Length - 1)
+                return Result.Failure<Email>(new Error("Email.Invalid", "Email format is invalid."));
+
             return Result.Success(new Email(email));
         }
 

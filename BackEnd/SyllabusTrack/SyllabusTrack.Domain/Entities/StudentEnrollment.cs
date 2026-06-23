@@ -14,7 +14,7 @@ namespace SyllabusTrack.Domain.Entities
         public int StudentId { get; private set; }
         public int ProgramId { get; private set; }
         public DateTime EnrollmentDate { get; private set; }
-        public string EnrollmentStatus { get; private set; }
+        public string EnrollmentStatus { get; private set; } = null!;
         public bool IsActive { get; private set; }
 
         // Relação 1:N com Progresso (Encapsulada)
