@@ -2,6 +2,8 @@
 
 **SyllabusTrack** é uma plataforma fullstack para acompanhamento de grade curricular, progresso acadêmico e planejamento de aproveitamento entre cursos, desenvolvida com Clean Architecture, CQRS e DDD.
 
+[![CI — Build, Test & Docker](https://github.com/rodrigofurlaneti/SyllabusTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/rodrigofurlaneti/SyllabusTrack/actions/workflows/ci.yml)
+
 ---
 
 ## Índice
@@ -10,6 +12,8 @@
 - [Funcionalidades](#funcionalidades)
 - [Stack Tecnológica](#stack-tecnológica)
 - [Arquitetura](#arquitetura)
+- [Camadas de Teste](#camadas-de-teste)
+- [CI/CD Pipeline](#cicd-pipeline)
 - [Modelagem de Dados](#modelagem-de-dados)
 - [Estrutura de Pastas](#estrutura-de-pastas)
 - [Padrões e Princípios](#padrões-e-princípios)
@@ -70,8 +74,10 @@ O **SyllabusTrack** permite que estudantes acompanhem sua trajetória acadêmica
 |---|---|
 | **xUnit** | Framework de testes |
 | **FluentAssertions** | Asserções expressivas |
-| **NSubstitute** | Mocks e stubs |
-| **Reqnroll** | BDD / Gherkin |
+| **NSubstitute** | Mocks e stubs (unit tests) |
+| **Moq** | Mocks e stubs (BDD specs) |
+| **Reqnroll** | BDD / Gherkin (specs) |
+| **NetArchTest.Rules** | Testes de arquitetura DDD |
 
 ### Frontend
 
@@ -127,6 +133,89 @@ MediatR Pipeline
          │
          ▼
     SQL Server (SyllabusTrackDb)
+```
+
+---
+
+## Camadas de Teste
+
+O projeto possui **três projetos de teste** complementares, todos executados no CI:
+
+### 1. SyllabusTrack.Tests — Testes Unitários (126 testes)
+
+Testes unitários com xUnit + FluentAssertions + NSubstitute cobrindo Domain e Application:
+
+- **Domain:** entidades (`EducationalInstitution`, `StudentAccount`), Value Objects (`Email`, `Grade`, `PhoneNumber`), `Result`/`Error`
+- **Application:** todos os command handlers, query handlers e validators por feature (Auth, Institutions, CourseComparison, AcademicPlanning, MultiplePlanning, MultipleTargetsPlanning, Recommendations)
+
+```bash
+dotnet test SyllabusTrack.Tests --verbosity normal
+# Total: 126 | Passed: 126
+```
+
+### 2. SyllabusTrack.Specs — BDD / Gherkin (52 specs)
+
+Especificações de comportamento com Reqnroll (Cucumber para .NET) + Moq, cobrindo os cenários de negócio via features `.feature`:
+
+| Feature | Cenários |
+|---|---|
+| Auth (Register + Login) | 13 |
+| Institutions | 8 |
+| CourseComparison | 4 |
+| AcademicPlanning | 5 |
+| MultiplePlanning | 10 |
+| MultipleTargetsPlanning | 10 |
+| Recommendations | 2 |
+
+```bash
+dotnet test SyllabusTrack.Specs --verbosity normal
+# Total: 52 | Passed: 52
+```
+
+### 3. SyllabusTrack.ArchTests — Testes de Arquitetura DDD (31 testes)
+
+Testes de arquitetura com **NetArchTest.Rules 1.3.2** garantindo que as fronteiras de Clean Architecture/DDD nunca sejam violadas:
+
+| Classe de Teste | Regras Verificadas |
+|---|---|
+| `LayerDependencyTests` (6) | Domain/Application/Infrastructure/API não violam hierarquia de dependências |
+| `DomainRulesTests` (7) | Entidades herdam `Entity`/`AggregateRoot`, são `sealed`, sem setters públicos; Value Objects herdam `ValueObject`; repositórios são interfaces; Domain sem EF Core |
+| `ApplicationRulesTests` (6) | Command/Query handlers seguem nomenclatura e implementam interfaces corretas; validators herdam `AbstractValidator<T>`; Application sem EF Core |
+| `InfrastructureRulesTests` (5) | Repositórios concretos são `sealed` e terminam em "Repository"; configurations são `sealed`, terminam em "Configuration" e implementam `IEntityTypeConfiguration<T>` |
+| `ApiRulesTests` (7) | Controllers residem em `SyllabusTrack.API.Controllers`, herdam `ApiController`, têm `[ApiController]`; middleware termina em "Middleware" |
+
+```bash
+dotnet test SyllabusTrack.ArchTests --verbosity normal
+# Total: 31 | Passed: 31
+```
+
+---
+
+## CI/CD Pipeline
+
+O arquivo `.github/workflows/ci.yml` define o pipeline completo:
+
+```
+push/PR para main ou develop
+        │
+        ├── Backend — Build & Test
+        │       │
+        │       ├── dotnet restore (solução completa)
+        │       ├── dotnet build  (0 warnings, 0 errors)
+        │       ├── Run Unit Tests     → unit-tests.trx
+        │       ├── Run BDD Specs      → bdd-specs.trx
+        │       └── Run Architecture Tests → arch-tests.trx
+        │
+        ├── Frontend — Build & Lint
+        │       ├── npm ci
+        │       ├── tsc --noEmit
+        │       └── npm run build
+        │
+        ├── Docker — Build & Push (push para main apenas)
+        │       ├── Build & push API image  → ghcr.io/.../syllabustrack-api
+        │       └── Build & push Frontend   → ghcr.io/.../syllabustrack-frontend
+        │
+        └── Pipeline Summary
 ```
 
 ---
@@ -272,17 +361,27 @@ SyllabusTrack/
         │       ├── JwtProvider.cs
         │       └── PasswordHasher.cs
         │
-        └── SyllabusTrack.API/
-            ├── Controllers/
-            │   ├── ApiController.cs           ← HandleResult<T> helper base
-            │   ├── AuthController.cs          ← POST register / login (público)
-            │   ├── EnrollmentsController.cs
-            │   ├── InstitutionsController.cs
-            │   ├── ProgramsController.cs      ← CRUD + compare + planning endpoints
-            │   └── SubjectsController.cs
-            ├── Extensions/SwaggerExtensions.cs
-            ├── Middleware/GlobalExceptionHandlingMiddleware.cs
-            └── Program.cs
+        ├── SyllabusTrack.API/
+        │   ├── Controllers/
+        │   │   ├── ApiController.cs           ← HandleResult<T> helper base
+        │   │   ├── AuthController.cs          ← POST register / login (público)
+        │   │   ├── EnrollmentsController.cs
+        │   │   ├── InstitutionsController.cs
+        │   │   ├── ProgramsController.cs      ← CRUD + compare + planning endpoints
+        │   │   └── SubjectsController.cs
+        │   ├── Extensions/SwaggerExtensions.cs
+        │   ├── Middleware/GlobalExceptionHandlingMiddleware.cs
+        │   └── Program.cs
+        │
+        ├── SyllabusTrack.Tests/               ← 126 testes unitários
+        ├── SyllabusTrack.Specs/               ← 52 specs BDD / Gherkin
+        └── SyllabusTrack.ArchTests/           ← 31 testes de arquitetura (NetArchTest)
+            ├── ArchTestBase.cs
+            ├── LayerDependencyTests.cs
+            ├── DomainRulesTests.cs
+            ├── ApplicationRulesTests.cs
+            ├── InfrastructureRulesTests.cs
+            └── ApiRulesTests.cs
 ```
 
 ---
@@ -348,6 +447,22 @@ var ordered = rows.GroupBy(r => r.TermNumber).OrderBy(g => g.Key);
 - `AsNoTracking()` **apenas** em leituras puras; nunca em métodos usados para update.
 - `IUnitOfWork.CommitAsync()` persiste atomicamente.
 - Soft delete: `entity.Deactivate()` → `IsActive = false`.
+
+### Testes de Arquitetura (NetArchTest)
+
+As fronteiras DDD são verificadas automaticamente a cada push. Qualquer violação quebra o CI antes de chegar ao merge:
+
+```
+Domain   → não pode depender de Application / Infrastructure / API
+Application → não pode depender de Infrastructure / API
+Infrastructure → não pode depender de API
+Entidades → sealed, private setters, herdam Entity/AggregateRoot
+Value Objects → sealed, herdam ValueObject
+Repositórios Domain → interfaces (prefixo I)
+Repositórios Infrastructure → sealed, terminam em "Repository"
+Configurations → sealed, terminam em "Configuration", implementam IEntityTypeConfiguration<T>
+Controllers → herdam ApiController, terminam em "Controller", têm [ApiController]
+```
 
 ---
 
@@ -503,7 +618,14 @@ A aplicação sobe em `http://localhost:5173` por padrão.
 
 ```bash
 cd BackEnd/SyllabusTrack
+
+# Todos os projetos
 dotnet test
+
+# Por projeto
+dotnet test SyllabusTrack.Tests       # 126 testes unitários
+dotnet test SyllabusTrack.Specs       # 52 specs BDD
+dotnet test SyllabusTrack.ArchTests   # 31 testes de arquitetura
 ```
 
 ---
@@ -528,6 +650,7 @@ dotnet test
 | **BCrypt workFactor 12** | Equilíbrio entre segurança e performance |
 | **useMutation para POST de consulta** | Endpoints de planejamento são POST (body complexo) mas retornam dados; `useMutation` é mais adequado que `useQuery` para disparo manual |
 | **CORS aberto em dev** | `AllowAnyOrigin` apenas em desenvolvimento — restringir por origin em produção |
+| **NetArchTest.Rules para arquitetura** | Regras DDD verificadas automaticamente no CI — nenhum PR pode quebrar as fronteiras de camada sem o CI reportar |
 
 ---
 

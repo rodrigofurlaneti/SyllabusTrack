@@ -16,7 +16,9 @@ Você é um arquiteto fullstack especialista neste projeto. Quando ativado, apli
 | Mensageria | MediatR 12 |
 | Validação | FluentValidation 11 |
 | Auth | JWT Bearer + BCrypt (workFactor 12) |
-| Testes | Reqnroll (BDD/Gherkin) + xUnit + NSubstitute + FluentAssertions |
+| Testes unitários | xUnit + FluentAssertions + NSubstitute |
+| Testes BDD | Reqnroll (Gherkin) + Moq |
+| Testes arquitetura | NetArchTest.Rules 1.3.2 |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS |
 | Estado servidor | TanStack React Query 5 |
 | Estado cliente | Zustand 5 (auth) |
@@ -58,7 +60,10 @@ SyllabusTrack/
         ├── SyllabusTrack.Domain
         ├── SyllabusTrack.Application
         ├── SyllabusTrack.Infrastructure
-        └── SyllabusTrack.API
+        ├── SyllabusTrack.API
+        ├── SyllabusTrack.Tests         # 126 testes unitários
+        ├── SyllabusTrack.Specs         # 52 specs BDD / Gherkin
+        └── SyllabusTrack.ArchTests     # 31 testes de arquitetura (NetArchTest)
 ```
 
 **Regra de dependência (Clean Architecture):**
@@ -145,7 +150,7 @@ public abstract class ValueObject : IEquatable<ValueObject>
 ```csharp
 public sealed class EducationalInstitution : AggregateRoot
 {
-    public string InstitutionName { get; private set; }
+    public string InstitutionName { get; private set; } = null!;
     public bool IsActive { get; private set; }
 
     private EducationalInstitution() : base(0) { }  // EF Core — OBRIGATÓRIO
@@ -170,6 +175,9 @@ public sealed class EducationalInstitution : AggregateRoot
 ```
 
 **Regras fixas:**
+- Classe `sealed`.
+- Propriedades com `private set` — **nunca** `public set`.
+- Strings não anuláveis com `= null!` (resolve CS8618 do EF Core).
 - Construtor `private` vazio para EF Core com `base(0)`.
 - Construtor `private` com parâmetros.
 - Factory `static Result<T> Create(...)`.
@@ -198,7 +206,7 @@ if (result.IsFailure)
 
 | VO | Regras |
 |---|---|
-| `Email` | não vazio, contém `@`, máx 255 chars |
+| `Email` | não vazio, contém `@`, `@` não pode ser na posição 0 ou última, máx 255 chars |
 | `Grade` | `decimal` entre 0.00 e 10.00 |
 | `PhoneNumber` | validação básica |
 
@@ -228,7 +236,7 @@ public interface IQueryHandler<TQuery, TResponse> : IRequestHandler<TQuery, Resu
 Application/Features/{Aggregate}/
   Create/
     CreateXxxCommand.cs          ← sealed record : ICommand<int>
-    CreateXxxCommandHandler.cs   ← sealed class : ICommandHandler<Cmd, int>
+    CreateXxxCommandHandler.cs   ← internal sealed class : ICommandHandler<Cmd, int>
     CreateXxxCommandValidator.cs ← sealed class : AbstractValidator<Cmd>
   Update/
     UpdateXxxCommand.cs          ← sealed record : ICommand
@@ -243,6 +251,8 @@ Application/Features/{Aggregate}/
   XxxResponse.cs                 ← sealed record (DTO de leitura)
 ```
 
+**Regra:** handlers são `internal sealed class` (não expostos fora da camada Application).
+
 ### 4.3 Features de Análise (sem entidade EF)
 
 Para `CourseComparison`, `AcademicPlanning`, `MultiplePlanning`, `MultipleTargetsPlanning`:
@@ -252,35 +262,8 @@ Application/Features/{Feature}/
   {Feature}Request.cs            ← sealed record (DTO de entrada — body do POST)
   {Feature}Response.cs           ← sealed record (DTO de saída)
   Get{Feature}Query.cs           ← sealed record : IQuery<{Feature}Response>
-  Get{Feature}QueryHandler.cs    ← sealed class : IQueryHandler<Query, Response>
+  Get{Feature}QueryHandler.cs    ← internal sealed class : IQueryHandler<Query, Response>
   I{Feature}Repository.cs        ← interface com método GetXxxAsync(...)
-```
-
-```csharp
-// Handler de feature de análise — padrão
-internal sealed class GetMultiplePlanQueryHandler(
-    IMultiplePlanningRepository repository)
-    : IQueryHandler<GetMultiplePlanQuery, MultiplePlanningResponse>
-{
-    public async Task<Result<MultiplePlanningResponse>> Handle(
-        GetMultiplePlanQuery request, CancellationToken ct)
-    {
-        // 1. Validações de negócio
-        if (request.SourceProgramIds.Count == 0)
-            return Result.Failure<MultiplePlanningResponse>(
-                new Error("MultiplePlanning.NoSource", "Informe ao menos um curso de referência."));
-
-        // 2. Delegar para o repositório
-        var plan = await repository.GetMultiplePlanAsync(
-            request.SourceProgramIds, request.TargetProgramId, ct);
-
-        if (plan is null)
-            return Result.Failure<MultiplePlanningResponse>(
-                new Error("MultiplePlanning.NotFound", "Curso não encontrado."));
-
-        return Result.Success(plan);
-    }
-}
 ```
 
 ### 4.4 FluentValidation
@@ -337,6 +320,11 @@ builder.HasOne<EducationalInstitution>()
     .OnDelete(DeleteBehavior.Restrict);
 ```
 
+**Regras de configuração:**
+- Toda configuration é `sealed` e implementa `IEntityTypeConfiguration<TEntity>`.
+- Reside em `SyllabusTrack.Infrastructure.Persistence.Configurations`.
+- Termina com "Configuration" (ex: `EducationalInstitutionConfiguration`).
+
 ### 5.3 SqlQuery\<T\> — Repositórios de Análise
 
 Repositórios de planejamento/comparação usam `dbContext.Database.SqlQuery<TRow>($"...")` com strings interpoladas (EF Core parametriza automaticamente — seguro contra SQL injection).
@@ -389,25 +377,18 @@ foreach (var srcId in sourceProgramIds)
     foreach (var n in names)
         unionNames.Add(n.SubjectName);
 }
-
-// Match O(1)
-bool isMatched = unionNames.Contains(subjectName.Trim().ToLowerInvariant());
 ```
 
-### 5.5 Segurança
+### 5.5 Regras de Repositório Concreto
 
-- `BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12)` / `Verify(password, hash)`
-- `usp_AuthenticateStudent` retorna o usuário pelo identificador. **Nunca** compara senha no SQL — verificação do hash BCrypt é feita em C# via `IPasswordHasher.Verify()`.
+- Classe `sealed` e termina com "Repository".
+- Reside em `SyllabusTrack.Infrastructure.Persistence.Repositories`.
+- Nested types internos (ex: `private record ProgramInfoRow`) são aceitáveis para mapeamento de SQL.
 
 ### 5.6 DependencyInjection.cs — Registro de Repositórios
 
 ```csharp
-// CRUD repositories
 services.AddScoped<IEducationalInstitutionRepository, EducationalInstitutionRepository>();
-services.AddScoped<IDegreeProgramRepository, DegreeProgramRepository>();
-// ...
-
-// Analysis repositories (sem entidade EF)
 services.AddScoped<ICourseComparisonRepository, CourseComparisonRepository>();
 services.AddScoped<IAcademicPlanningRepository, AcademicPlanningRepository>();
 services.AddScoped<IMultiplePlanningRepository, MultiplePlanningRepository>();
@@ -440,12 +421,10 @@ public abstract class ApiController : ControllerBase
 [Authorize]
 public sealed class ProgramsController(ISender sender) : ApiController
 {
-    // GET simples → HandleResult
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
         => HandleResult(await sender.Send(new GetAllProgramsQuery(), ct));
 
-    // GET com parâmetro → NotFound explícito
     [HttpGet("{id:int}", Name = "GetProgramById")]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
@@ -456,32 +435,12 @@ public sealed class ProgramsController(ISender sender) : ApiController
         return Ok(result.Value);
     }
 
-    // POST → CreatedAtRoute
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateProgramCommand command, CancellationToken ct)
     {
         var result = await sender.Send(command, ct);
         if (result.IsFailure) return BadRequest(...);
         return CreatedAtRoute("GetProgramById", new { id = result.Value }, new { programId = result.Value });
-    }
-
-    // POST de análise → Ok ou 400/404
-    [HttpPost("planning/multiple")]
-    public async Task<IActionResult> GetMultiplePlanning(
-        [FromBody] MultiplePlanningRequest request, CancellationToken ct)
-    {
-        var result = await sender.Send(
-            new GetMultiplePlanQuery(request.SourceProgramIds, request.TargetProgramId), ct);
-
-        if (result.IsFailure)
-        {
-            if (result.Error.Code.Contains("NotFound"))
-                return NotFound(new ProblemDetails { Detail = result.Error.Message,
-                    Extensions = { ["code"] = result.Error.Code } });
-            return BadRequest(new ProblemDetails { Detail = result.Error.Message,
-                Extensions = { ["code"] = result.Error.Code } });
-        }
-        return Ok(result.Value);
     }
 }
 
@@ -490,122 +449,89 @@ public sealed record UpdateProgramRequest(string ProgramName, string CurriculumV
 ```
 
 **Regras:**
-- `AuthController` **não** tem `[Authorize]`. Todos os demais têm.
+- Classe `sealed`, herda `ApiController`, tem `[Authorize]` (exceto `AuthController`).
+- Termina com "Controller" e reside em `SyllabusTrack.API.Controllers`.
 - Todo `HttpGet("{id:int}")` deve ter `Name = "GetXxxById"` para `CreatedAtRoute` funcionar.
+- DTOs de request (`XxxRequest`) são records separados — **não são controllers** mesmo que residam no mesmo namespace.
 
 ---
 
-## 7. Frontend — Padrões
+## 7. Camadas de Teste
 
-### 7.1 Feature Folder
+### 7.1 SyllabusTrack.Tests — Testes Unitários (126 testes)
 
-Cada feature tem estrutura consistente:
+xUnit + FluentAssertions + NSubstitute. Cobre Domain (entidades, Value Objects, Result) e Application (handlers, validators).
+
+### 7.2 SyllabusTrack.Specs — BDD / Gherkin (52 specs)
+
+Reqnroll + Moq. Features `.feature` com step definitions em `StepDefinitions/`. Cada feature tem sua pasta isolada.
+
+**Regras críticas de Reqnroll:**
+- Parênteses em step patterns devem ser escapados: `\\(texto\\)` (Cucumber Expression trata `(texto)` como opcional).
+- Remover step bindings duplicados entre classes — um step pattern só pode ter um binding em todo o projeto.
+- Steps que checam `ctx.ComparisonResult` e `ctx.AcademicPlanResult` devem ter guard null: checar qual contexto está preenchido.
+
+### 7.3 SyllabusTrack.ArchTests — Testes de Arquitetura (31 testes)
+
+NetArchTest.Rules 1.3.2. Verifica automaticamente as fronteiras DDD. Qualquer violação quebra o CI.
 
 ```
-features/{featureName}/
-  api/{featureName}Api.ts        ← Função que chama apiClient
-  hooks/use{FeatureName}.ts      ← useQuery ou useMutation
-  pages/{FeatureName}Page.tsx    ← Página principal
-  types/{featureName}.types.ts   ← Tipos TypeScript (opcional)
+ArchTestBase.cs               ← assembly anchors e constantes de namespace
+LayerDependencyTests.cs       ← 6 testes — isolamento de camadas
+DomainRulesTests.cs           ← 7 testes — regras DDD do Domain
+ApplicationRulesTests.cs      ← 6 testes — CQRS e validators
+InfrastructureRulesTests.cs   ← 5 testes — repositórios e configurations
+ApiRulesTests.cs              ← 7 testes — controllers e middleware
 ```
 
-### 7.2 useQuery vs useMutation
+**Regras de varredura de tipos:**
+- Excluir tipos aninhados: `t.DeclaringType == null`.
+- Excluir tipos gerados pelo compilador: `!t.Name.StartsWith("<")`.
+- Filtrar controllers por herança de `ControllerBase`, não por namespace.
 
-```typescript
-// ✅ useQuery — para GET (disparo automático, cache gerenciado)
-export function usePlanning(sourceId: number, targetId: number) {
-  return useQuery({
-    queryKey: ['planning', sourceId, targetId],
-    queryFn: () => planningApi.getPlan(sourceId, targetId),
-    enabled: sourceId > 0 && targetId > 0,
-  })
-}
-
-// ✅ useMutation — para POST de análise (disparo manual, sem cache automático)
-// Planejamento múltiplo usa POST (body complexo) mas retorna dados — usar useMutation
-export function useMultiplePlanning() {
-  return useMutation({
-    mutationFn: ({ sourceProgramIds, targetProgramId }: {
-      sourceProgramIds: number[]
-      targetProgramId: number
-    }) => multiplePlanningApi.getMultiplePlan(sourceProgramIds, targetProgramId),
-  })
-}
-
-// Uso do useMutation na página
-const { mutate, data, isPending, isError, reset } = useMultiplePlanning()
-mutate({ sourceProgramIds: [1, 2], targetProgramId: 3 })
+**Fronteiras verificadas:**
 ```
-
-### 7.3 Axios Client
-
-```typescript
-// core/api/client.ts
-export const apiClient = axios.create({ baseURL: import.meta.env.VITE_API_URL })
-
-// Interceptor JWT — adiciona Authorization header automaticamente
-apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
-```
-
-### 7.4 Tipos Compartilhados Entre Features
-
-Tipos de uma feature podem ser importados por outra sem copiar:
-
-```typescript
-// planning/api/planningApi.ts define os tipos base
-export interface SemesterPlanItem { ... }
-export interface PlannedSubjectItem { ... }
-
-// multipleplanning/api/multiplePlanningApi.ts reutiliza
-import type { SemesterPlanItem } from '../../planning/api/planningApi'
-
-// multipleTargetsPlanning reutiliza o SourceProgramSummary do multipleplanning
-import type { SourceProgramSummary } from '../../multipleplanning/api/multiplePlanningApi'
-```
-
-### 7.5 Rotas e NavBar
-
-```typescript
-// AppRouter.tsx — adicionar rota dentro do ProtectedRoute > Layout
-<Route path="/minha-feature" element={<MinhaFeaturePage />} />
-
-// NavBar.tsx — adicionar item no array navItems
-{ to: '/minha-feature', label: 'Minha Feature' }
-```
-
-### 7.6 Plano Consolidado (deduplicação frontend)
-
-Quando múltiplos resultados chegam da API e precisam de deduplicação, a consolidação é feita em memória no frontend — sem round-trip extra ao backend:
-
-```typescript
-// Padrão usado em MultipleTargetsPlanningPage
-const seen = new Map<string, ConsolidatedSubject>()
-
-for (const target of targetResults) {
-  for (const sem of target.semesterPlans) {
-    for (const s of sem.subjects) {
-      if (s.isMatched) continue
-      const key = s.subjectName.trim().toLowerCase()
-      if (!seen.has(key)) {
-        seen.set(key, { subjectName: s.subjectName, hours: s.hours, targetNames: [] })
-      }
-      const entry = seen.get(key)!
-      if (!entry.targetNames.includes(target.targetProgramName))
-        entry.targetNames.push(target.targetProgramName)
-    }
-  }
-}
+Domain        → não depende de Application / Infrastructure / API
+Application   → não depende de Infrastructure / API / EF Core
+Domain        → não depende de EF Core
+Entidades     → sealed, setters private, herdam Entity ou AggregateRoot
+Value Objects → sealed, herdam ValueObject
+Repos Domain  → interfaces com prefixo I
+Repos Infra   → sealed, terminam em "Repository"
+Configurations → sealed, terminam em "Configuration", implementam IEntityTypeConfiguration<T>
+Controllers   → herdam ApiController, terminam em "Controller", têm [ApiController]
+Middleware    → termina em "Middleware"
 ```
 
 ---
 
-## 8. SQL — Scripts e Padrões
+## 8. CI/CD Pipeline
 
-### 8.1 Stored Procedures
+`.github/workflows/ci.yml` — executado em push/PR para `main` e `develop`:
+
+```
+Backend — Build & Test
+  ├── dotnet restore (0 warnings)
+  ├── dotnet build  (0 warnings, 0 errors)
+  ├── Run Unit Tests     (SyllabusTrack.Tests)     → unit-tests.trx
+  ├── Run BDD Specs      (SyllabusTrack.Specs)     → bdd-specs.trx
+  └── Run Architecture Tests (SyllabusTrack.ArchTests) → arch-tests.trx
+
+Frontend — Build & Lint
+  ├── npm ci
+  ├── tsc --noEmit
+  └── npm run build
+
+Docker — Build & Push (push para main apenas)
+  ├── API → ghcr.io/.../syllabustrack-api
+  └── Frontend → ghcr.io/.../syllabustrack-frontend
+```
+
+---
+
+## 9. SQL — Scripts e Padrões
+
+### 9.1 Stored Procedures
 
 ```sql
 -- Padrão: @Action CHAR(1) com 'I', 'U', 'D', 'S'
@@ -616,32 +542,29 @@ CREATE PROCEDURE usp_ManageEducationalInstitution
 -- A verificação BCrypt é feita no C# (IPasswordHasher.Verify)
 ```
 
-### 8.2 Seeds — Padrão de Script
+### 9.2 Seeds — Padrão de Script
 
 ```sql
--- Sempre usar DECLARE @Id INT e SCOPE_IDENTITY() para capturar IDs
 DECLARE @InstId INT, @ProgId INT, @T1 INT
 
--- Filtrar sempre por ProgramId em subqueries de TermId e ModuleId
 SELECT @T1 = TermId FROM AcademicTerm
-WHERE ProgramId = @ProgId AND TermNumber = 1   -- ← SEMPRE com ProgramId
+WHERE ProgramId = @ProgId AND TermNumber = 1   -- SEMPRE com ProgramId
 
 SELECT ModuleId FROM CourseModule
-WHERE TermId = @T1 AND ModuleCode = 'ADS-1A'   -- ← SEMPRE com TermId
+WHERE TermId = @T1 AND ModuleCode = 'ADS-1A'   -- SEMPRE com TermId
 
--- Separar batches com GO entre blocos que reutilizam variáveis com mesmo nome
+-- Separar batches com GO
 GO
 ```
 
-### 8.3 Cleanup_All.sql — Ordem de FK
+### 9.3 Cleanup_All.sql — Ordem de FK
 
 ```sql
--- Ordem obrigatória: mais dependente primeiro
 1. SubjectPrerequisite
 2. StudentProgress
 3. StudentEnrollment
 4. AcademicSubject
-5. CourseModule (com TermId) → CourseModule órfãos (TermId NULL)
+5. CourseModule
 6. AcademicTerm
 7. DegreeProgram
 8. EducationalInstitution
@@ -649,29 +572,66 @@ GO
 
 ---
 
-## 9. Checklist — Nova Feature de CRUD
+## 10. Frontend — Padrões
 
-- [ ] **Domain:** entidade extends `Entity`/`AggregateRoot`; construtor `private` vazio `base(0)`; factory `static Result<T> Create(...)`; `UpdateDetails(...)` retorna `Result`; `Deactivate()`; interface em `Domain/Repositories/`
-- [ ] **EF Config:** `IEntityTypeConfiguration<T>`; Value Objects via `HasConversion`; `UsePropertyAccessMode(Field)` para coleções privadas; `OnDelete(Cascade)` apenas para coleções próprias; `Restrict` entre aggregates; `DbSet<T>` no `AppDbContext`
-- [ ] **Repository:** em `Infrastructure/Persistence/Repositories/`; sem `AsNoTracking()` nos métodos de update
-- [ ] **DI:** `services.AddScoped<IXxxRepository, XxxRepository>()` em `DependencyInjection.cs`
-- [ ] **Commands:** `using SyllabusTrack.Application.Abstractions.Messaging;`; handler + `unitOfWork.CommitAsync()`; validator
-- [ ] **Queries:** `AsNoTracking()`; `XxxResponse.cs` como `sealed record`
-- [ ] **Controller:** extends `ApiController`; `[Authorize]`; `HandleResult()`; request body separado do command quando há parâmetro de rota; named route no `HttpGet("{id:int}")`
-- [ ] **SQL:** tabela com `IsActive`, `CreatedAt`, `UpdatedAt`; FK com índice explícito; soft delete
-- [ ] **Testes:** Feature file + binding NSubstitute + FluentAssertions
+### 10.1 Feature Folder
 
-## 10. Checklist — Nova Feature de Análise (sem entidade EF)
+```
+features/{featureName}/
+  api/{featureName}Api.ts
+  hooks/use{FeatureName}.ts
+  pages/{FeatureName}Page.tsx
+  types/{featureName}.types.ts   (opcional)
+```
 
-- [ ] **Application:** `{Feature}Request.cs`, `{Feature}Response.cs`, `Get{Feature}Query.cs`, `Get{Feature}QueryHandler.cs`, `I{Feature}Repository.cs`
-- [ ] **Infrastructure:** `{Feature}Repository.cs` com `SqlQuery<TRow>` — **sem `ORDER BY` no SQL** (EF Core 9); ordenação em C#
-- [ ] **DI:** registrar `IXxxRepository` em `DependencyInjection.cs`
-- [ ] **API:** novo endpoint no `ProgramsController` (ou controller adequado); POST para queries com body complexo; 400 para erros de validação, 404 para not found
-- [ ] **Frontend:** `{feature}Api.ts` → `{feature}Api.{método}()`; `use{Feature}.ts` → `useMutation` (POST) ou `useQuery` (GET); `{Feature}Page.tsx`; rota em `AppRouter.tsx`; item em `NavBar.tsx`
+### 10.2 useQuery vs useMutation
+
+- `useQuery` → GET (disparo automático, cache gerenciado).
+- `useMutation` → POST de análise (body complexo, disparo manual).
+
+### 10.3 Plano Consolidado (deduplicação frontend)
+
+```typescript
+const seen = new Map<string, ConsolidatedSubject>()
+for (const target of targetResults) {
+  for (const sem of target.semesterPlans) {
+    for (const s of sem.subjects) {
+      if (s.isMatched) continue
+      const key = s.subjectName.trim().toLowerCase()
+      if (!seen.has(key))
+        seen.set(key, { subjectName: s.subjectName, hours: s.hours, targetNames: [] })
+      seen.get(key)!.targetNames.push(target.targetProgramName)
+    }
+  }
+}
+```
 
 ---
 
-## 11. Restrições Absolutas
+## 11. Checklist — Nova Feature de CRUD
+
+- [ ] **Domain:** entidade `sealed`; `private set` + `= null!`; construtor `private` vazio `base(0)`; factory `static Result<T> Create(...)`; `UpdateDetails(...)` retorna `Result`; `Deactivate()`; interface `IXxxRepository` em `Domain/Repositories/`
+- [ ] **EF Config:** `sealed`, `IEntityTypeConfiguration<T>`; termina em "Configuration"; Value Objects via `HasConversion`; `UsePropertyAccessMode(Field)` para coleções privadas; `OnDelete(Cascade)` apenas para coleções próprias; `Restrict` entre aggregates; `DbSet<T>` no `AppDbContext`
+- [ ] **Repository:** `sealed`, termina em "Repository", em `Infrastructure/Persistence/Repositories/`; sem `AsNoTracking()` nos métodos de update
+- [ ] **DI:** `services.AddScoped<IXxxRepository, XxxRepository>()` em `DependencyInjection.cs`
+- [ ] **Commands:** `using SyllabusTrack.Application.Abstractions.Messaging;`; handler `internal sealed`; `unitOfWork.CommitAsync()`; validator `sealed : AbstractValidator<>`
+- [ ] **Queries:** `AsNoTracking()`; `XxxResponse.cs` como `sealed record`
+- [ ] **Controller:** `sealed`, herda `ApiController`, `[Authorize]`, `HandleResult()`; request body separado do command quando há parâmetro de rota; named route no `HttpGet("{id:int}")`
+- [ ] **SQL:** tabela com `IsActive`, `CreatedAt`, `UpdatedAt`; FK com índice explícito; soft delete
+- [ ] **Testes:** Feature file + binding + FluentAssertions; unit tests para handler + validator; **confirmar que testes de arquitetura ainda passam** (31/31)
+
+## 12. Checklist — Nova Feature de Análise (sem entidade EF)
+
+- [ ] **Application:** `{Feature}Request.cs`, `{Feature}Response.cs`, `Get{Feature}Query.cs`, `Get{Feature}QueryHandler.cs` (`internal sealed`), `I{Feature}Repository.cs`
+- [ ] **Infrastructure:** `{Feature}Repository.cs` `sealed`, termina em "Repository"; `SqlQuery<TRow>` — **sem `ORDER BY` no SQL**; ordenação em C#
+- [ ] **DI:** registrar `IXxxRepository` em `DependencyInjection.cs`
+- [ ] **API:** novo endpoint; POST para queries com body complexo; 400 para erros de validação, 404 para not found
+- [ ] **Frontend:** `{feature}Api.ts`, `use{Feature}.ts` (`useMutation`), `{Feature}Page.tsx`; rota em `AppRouter.tsx`; item em `NavBar.tsx`
+- [ ] **Confirmar:** 31 testes de arquitetura ainda passam
+
+---
+
+## 13. Restrições Absolutas
 
 1. **Não alterar o esquema SQL** (`MasterScript.sql`) — sem confirmação explícita do usuário.
 2. **Não alterar features já homologadas** — apenas adicionar novas.
@@ -680,3 +640,7 @@ GO
 5. **Nunca comparar senha no SQL** — hash BCrypt verificado sempre em C# via `IPasswordHasher.Verify()`.
 6. **Nunca `DELETE` físico** — sempre soft delete (`IsActive = 0`).
 7. **Nunca `AsNoTracking()` em repositório usado para update**.
+8. **Nunca criar entidade sem `private set` nas propriedades** — viola os testes de arquitetura (`Domain_Entities_MustNotHavePublicSetters`).
+9. **Nunca criar entidade sem `sealed`** — viola os testes de arquitetura (`Domain_Entities_MustBeSealed`).
+10. **Nunca referenciar EF Core no Domain ou Application** — viola os testes de arquitetura.
+11. **Nunca criar handler sem sufixo "CommandHandler" ou "QueryHandler"** — viola os testes de arquitetura.
